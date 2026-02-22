@@ -6,6 +6,8 @@
     <title>Propify Manager - App Edition</title>
     <!-- Iconos: Lucide -->
     <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- Supabase JS (UMD) -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
     <style>
         /* --- DISEÑO ESTILO APP (Inventario Residencial) --- */
         :root {
@@ -460,8 +462,24 @@
             </div>
             <h2 style="color:var(--primary); font-weight:800; font-size:1.5rem;">Propify</h2>
             <p style="margin-bottom: 2rem; color: var(--text-muted); font-size:0.9rem;">Gestión Residencial</p>
-            <input type="password" id="auth-pass" class="form-control" placeholder="Clave (Default: 1234)" style="margin-bottom: 1.5rem; text-align: center; font-size:1.1rem; letter-spacing: 2px;">
-            <button class="btn btn-primary" style="width: 100%; padding: 14px;" onclick="checkAuth()">Acceder</button>
+
+            <div id="auth-form-content">
+                <input type="email" id="auth-email" class="form-control" placeholder="tu@email.com" style="margin-bottom: 1.5rem; text-align: center; font-size:1rem;">
+                <button id="auth-btn" class="btn btn-primary" style="width: 100%; padding: 14px;" onclick="sendMagicLink()">
+                    <i data-lucide="mail"></i> Enviar Link Mágico
+                </button>
+            </div>
+
+            <div id="auth-confirm" class="hidden">
+                <div style="background:#d1fae5; border-radius:12px; padding:1.5rem; color:#065f46;">
+                    <i data-lucide="check-circle" style="width:24px; height:24px; margin-bottom:8px;"></i>
+                    <p><strong>¡Link enviado!</strong></p>
+                    <p style="font-size:0.85rem; margin-top:8px;">Revisa tu email y haz clic en el enlace mágico para acceder.</p>
+                </div>
+                <button class="btn btn-ghost" style="width:100%; margin-top:1rem;" onclick="document.getElementById('auth-form-content').classList.remove('hidden'); document.getElementById('auth-confirm').classList.add('hidden');">
+                    Cambiar email
+                </button>
+            </div>
         </div>
     </div>
 
@@ -471,7 +489,8 @@
             <i data-lucide="home" style="width:24px; color:var(--accent);"></i>
             <strong style="font-size: 1.2rem; letter-spacing: -0.5px;">Propify</strong>
         </div>
-        <div style="display:flex; gap:8px;">
+        <div style="display:flex; gap:8px; align-items:center;">
+            <span id="user-email-display" style="font-size:0.75rem; color:var(--text-muted); max-width:120px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"></span>
             <button class="btn btn-ghost" style="padding: 8px; border:none;" onclick="exportDataJSON()" title="Descargar Backup"><i data-lucide="download"></i></button>
             <button class="btn btn-ghost" style="padding: 8px; border:none; color:var(--danger);" onclick="logout()" title="Cerrar Sesión"><i data-lucide="log-out"></i></button>
         </div>
@@ -487,12 +506,13 @@
         </div>
         <nav class="nav-links">
             <a class="nav-item active" onclick="navigate('dashboard')"><i data-lucide="layout-grid"></i> <span>Dashboard</span></a>
-            <a class="nav-item" onclick="navigate('tenants')"><i data-lucide="users"></i> <span>Inquilinos</span></a>
-            <a class="nav-item" onclick="navigate('payments')"><i data-lucide="wallet"></i> <span>Recaudos</span></a>
+            <a class="nav-item owner-only" onclick="navigate('tenants')"><i data-lucide="users"></i> <span>Inquilinos</span></a>
+            <a class="nav-item owner-only" onclick="navigate('payments')"><i data-lucide="wallet"></i> <span>Recaudos</span></a>
             <a class="nav-item" onclick="navigate('services')"><i data-lucide="zap"></i> <span>Servicios</span></a>
             <a class="nav-item" onclick="navigate('adminfees')"><i data-lucide="building"></i> <span>Admin</span></a>
         </nav>
         <div style="padding: 1.5rem; border-top: 1px solid var(--border);">
+            <div id="sidebar-user-email" style="font-size:0.8rem; color:var(--text-muted); margin-bottom:12px; word-break:break-all;"></div>
             <button class="btn btn-ghost" onclick="exportDataJSON()" style="width: 100%; margin-bottom: 10px; justify-content:center;">
                 <i data-lucide="download" style="width:16px;"></i> Backup Data
             </button>
@@ -574,13 +594,13 @@
             <div class="page-header">
                 <h1>Gestión de Servicios</h1>
                 <div class="header-actions">
-                    <button class="btn btn-primary" onclick="openUtilityModal()"><i data-lucide="plus-circle"></i> Maestro</button>
-                    <button class="btn btn-ghost" onclick="openReadingModal()"><i data-lucide="file-digit"></i> Lectura</button>
+                    <button class="btn btn-primary owner-only" onclick="openUtilityModal()"><i data-lucide="plus-circle"></i> Maestro</button>
+                    <button class="btn btn-ghost owner-only" onclick="openReadingModal()"><i data-lucide="file-digit"></i> Lectura</button>
                     <button class="btn btn-success" onclick="openServicePaymentModal()"><i data-lucide="credit-card"></i> Cobrar Inq.</button>
                 </div>
             </div>
 
-            <div class="card">
+            <div class="card owner-only">
                 <div class="card-header"><h2>Cuentas Maestras</h2></div>
                 <div class="table-container">
                     <table>
@@ -590,7 +610,7 @@
                 </div>
             </div>
 
-            <div class="card">
+            <div class="card owner-only">
                 <div class="card-header"><h2>Registro de Medidores</h2></div>
                 <div class="table-container">
                     <table>
@@ -615,7 +635,7 @@
         <section id="view-adminfees" class="hidden">
             <div class="page-header">
                 <h1>Administración</h1>
-                <button class="btn btn-primary" onclick="openAdminModal()"><i data-lucide="plus"></i> Registro Manual</button>
+                <button class="btn btn-primary owner-only" onclick="openAdminModal()"><i data-lucide="plus"></i> Registro Manual</button>
             </div>
             <div class="card">
                 <div class="table-container">
@@ -673,7 +693,7 @@
 
                 <div class="form-group"><label>Monto Pagado ($)</label><input type="number" id="p-amount" class="form-control" required></div>
                 <div class="form-group"><label>Mes a aplicar</label><input type="month" id="p-month" class="form-control" required></div>
-                <div class="form-group"><label>Soporte (Foto/Recibo)</label><input type="file" id="p-file" class="form-control" accept="image/*" style="padding: 10px;"></div>
+                <div class="form-group"><label>Soporte (Foto/PDF)</label><input type="file" id="p-file" class="form-control" accept="image/*,application/pdf" style="padding: 10px;"></div>
                 
                 <div style="display:flex; gap:10px; margin-top: 1rem;">
                     <button type="submit" class="btn btn-success" style="flex:1; padding: 14px;">Guardar Abono</button>
@@ -722,6 +742,7 @@
                 <div class="form-group"><label>Servicio Facturado</label><select id="sp-type" class="form-control"><option>Luz</option><option>Agua</option><option>Gas</option></select></div>
                 <div class="form-group"><label>Monto a Cobrar ($)</label><input type="number" id="sp-amount" class="form-control" required></div>
                 <div class="form-group"><label>Mes Correspondiente</label><input type="month" id="sp-month" class="form-control" required></div>
+                <div class="form-group"><label>Soporte (Foto/PDF)</label><input type="file" id="sp-support" class="form-control" accept="image/*,application/pdf" style="padding: 10px;"></div>
                 <div style="display:flex; gap:10px; margin-top: 1rem;">
                     <button type="submit" class="btn btn-success" style="flex:1; padding: 14px;">Guardar Cobro</button>
                     <button type="button" class="btn btn-ghost" onclick="closeModals()" style="flex:1;">Cancelar</button>
@@ -754,14 +775,18 @@
     <div id="viewer-modal" class="modal-overlay">
         <div class="modal">
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 1.5rem;">
-                <h3 style="margin:0; font-size:1.2rem;">Soporte del Pago</h3>
+                <h3 style="margin:0; font-size:1.2rem;">Soporte</h3>
                 <button type="button" class="btn btn-ghost" onclick="closeModals()" style="padding: 8px; border:none;"><i data-lucide="x"></i></button>
             </div>
-            <div style="text-align:center; min-height: 250px; background:var(--background); border-radius:16px; overflow:hidden; display:flex; align-items:center; justify-content:center; border: 1px solid var(--border);">
+            <div style="text-align:center; min-height: 250px; background:var(--background); border-radius:16px; overflow:hidden; display:flex; flex-direction:column; align-items:center; justify-content:center; border: 1px solid var(--border); gap:12px; padding:8px;">
                 <img id="viewer-img" src="" style="max-width:100%; max-height: 60vh; display:none; border-radius: 12px;">
+                <embed id="viewer-pdf" src="" type="application/pdf" style="width:100%; height: 60vh; display:none; border-radius: 8px;">
+                <a id="viewer-pdf-link" href="" target="_blank" rel="noopener" class="btn btn-primary" style="display:none;">
+                    <i data-lucide="external-link"></i> Abrir PDF
+                </a>
                 <div id="viewer-empty" style="color: var(--text-muted); display:flex; flex-direction:column; align-items:center; gap:10px;">
                     <i data-lucide="image-off" style="width:32px; height:32px;"></i>
-                    <p>Sin imagen adjunta.</p>
+                    <p>Sin soporte adjunto.</p>
                 </div>
             </div>
         </div>
@@ -783,159 +808,194 @@
     </div>
 
     <script>
-        
-        // --- 1. CONFIGURACIÓN LOCAL INDEXED DB ---
-        const DB_NAME = 'PropifyLocalDB';
-        const STORE_NAME = 'mainData';
-        let db;
+        // =====================================================
+        // 1. SUPABASE CONFIGURATION
+        // Replace these placeholder values with your actual Supabase project credentials.
+        // See README.md for full setup instructions.
+        // =====================================================
+        const SUPABASE_URL = 'YOUR_SUPABASE_URL';
+        const SUPABASE_ANON_KEY = 'YOUR_SUPABASE_ANON_KEY';
 
-        // CONFIGURACIÓN NUBE (GITHUB GIST)
-        const GIST_ID = 'd2c6ca2ad6ad9b41a96bfc58e8d9a637';
-        const GITHUB_TOKEN = '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';
-        const CLOUD_FILENAME = "propify_backup_local_2026-02-22 (2).json";
+        const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-        async function initDB() {
-            return new Promise((resolve) => {
-                const request = indexedDB.open(DB_NAME, 2);
-                request.onupgradeneeded = (e) => {
-                    const db = e.target.result;
-                    if (!db.objectStoreNames.contains(STORE_NAME)) db.createObjectStore(STORE_NAME);
-                };
-                request.onsuccess = (e) => { db = e.target.result; resolve(); };
-            });
-        }
-
-        async function getData() {
-            return new Promise((resolve) => {
-                const tx = db.transaction(STORE_NAME, 'readonly');
-                const store = tx.objectStore(STORE_NAME);
-                const req = store.get('main');
-                req.onsuccess = () => {
-                    let d = req.result || { tenants: [], payments: [], services: [], servicePayments: [], adminfees: [], utilityAccounts: [] };
-                    if (!d.tenants) d.tenants = [];
-                    if (!d.payments) d.payments = [];
-                    if (!d.services) d.services = [];
-                    if (!d.servicePayments) d.servicePayments = [];
-                    if (!d.adminfees) d.adminfees = [];
-                    if (!d.utilityAccounts) d.utilityAccounts = [];
-
-                    const now = new Date();
-                    const year = now.getFullYear();
-                    const months = ['01','02','03','04','05','06','07','08','09','10','11','12'];
-                    
-                    months.forEach(m => {
-                        const key = `${year}-${m}`;
-                        if (!d.adminfees.find(af => af.month === key)) {
-                            d.adminfees.push({ id: Date.now() + Math.random(), month: key, amount: 204800, status: 'Pendiente', date: new Date().toLocaleDateString(), createdAt: new Date().toISOString() });
-                        }
-                    });
-
-                    if (d.utilityAccounts.length === 0) {
-                        d.utilityAccounts = [
-                            { id: Date.now()+1, type: 'Afinia', contract: '7936068', dueDate: '04 de cada mes' },
-                            { id: Date.now()+2, type: 'Surtigas', contract: '4683385', dueDate: '07 de cada mes' },
-                            { id: Date.now()+3, type: 'Aguas de Cartagena', contract: '646371', dueDate: '29 de cada mes' }
-                        ];
-                    }
-                    resolve(d);
-                };
-            });
-        }
-
-        async function saveData(data) {
-            return new Promise((resolve) => {
-                const tx = db.transaction(STORE_NAME, 'readwrite');
-                tx.objectStore(STORE_NAME).put(data, 'main');
-                tx.oncomplete = () => resolve();
-            });
-        }
-
-        // --- FUNCIONES DE NUBE ---
-        async function syncToCloud() {
-            try {
-                const response = await fetch(`https://api.github.com/gists/${GIST_ID}`, {
-                    method: 'PATCH',
-                    headers: {
-                        'Authorization': `token ${GITHUB_TOKEN}`,
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                        files: {
-                            [CLOUD_FILENAME]: {
-                                content: JSON.stringify(state, null, 2)
-                            }
-                        }
-                    })
-                });
-                if (response.ok) console.log("Sincronizado con GitHub");
-            } catch (error) {
-                console.error("Error sincronizando a la nube:", error);
-            }
-        }
-
-        async function loadFromCloud() {
-            try {
-                const response = await fetch(`https://api.github.com/gists/${GIST_ID}`);
-                if (!response.ok) return;
-                const gist = await response.json();
-                if (gist.files && gist.files[CLOUD_FILENAME]) {
-                    const content = JSON.parse(gist.files[CLOUD_FILENAME].content);
-                    if (Object.keys(content).length > 0) {
-                        state = content;
-                        await saveData(state);
-                        console.log("Datos cargados desde la nube");
-                    }
-                }
-            } catch (error) {
-                console.error("Error cargando desde la nube:", error);
-            }
-        }
-
-        async function exportDataJSON() {
-            const data = await getData();
-            const fileName = `propify_backup_local_${new Date().toISOString().split('T')[0]}.json`;
-            const json = JSON.stringify(data, null, 2);
-            const blob = new Blob([json], { type: 'application/json' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = fileName;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            URL.revokeObjectURL(url);
-        }
-
-        // --- 3. ESTADO Y CONTROLADORES PRINCIPALES ---
+        // =====================================================
+        // 2. APP STATE
+        // =====================================================
         let state = { tenants: [], payments: [], services: [], servicePayments: [], adminfees: [], utilityAccounts: [] };
+        let currentUser = null;
+        let currentRole = null; // 'owner' | 'tenant'
 
+        // =====================================================
+        // 3. AUTH FUNCTIONS
+        // =====================================================
+        async function sendMagicLink() {
+            if (SUPABASE_URL === 'YOUR_SUPABASE_URL') {
+                alert('Configura SUPABASE_URL y SUPABASE_ANON_KEY en el archivo. Ver README.md para instrucciones.');
+                return;
+            }
+            const email = document.getElementById('auth-email').value.trim();
+            if (!email) { alert('Por favor ingresa tu email.'); return; }
+            const btn = document.getElementById('auth-btn');
+            btn.disabled = true;
+            btn.textContent = 'Enviando...';
+            const { error } = await supabaseClient.auth.signInWithOtp({
+                email,
+                options: { emailRedirectTo: window.location.origin + window.location.pathname }
+            });
+            btn.disabled = false;
+            btn.innerHTML = '<i data-lucide="mail"></i> Enviar Link Mágico';
+            lucide.createIcons();
+            if (error) {
+                alert('Error: ' + error.message);
+            } else {
+                document.getElementById('auth-form-content').classList.add('hidden');
+                document.getElementById('auth-confirm').classList.remove('hidden');
+            }
+        }
+
+        function logout() {
+            supabaseClient.auth.signOut();
+        }
+
+        async function getUserRole(userId) {
+            const { data } = await supabaseClient.from('profiles').select('role').eq('id', userId).single();
+            return data?.role || 'tenant';
+        }
+
+        function applyRoleUI(role) {
+            const isOwner = role === 'owner';
+            document.querySelectorAll('.owner-only').forEach(el => el.classList.toggle('hidden', !isOwner));
+        }
+
+        // =====================================================
+        // 4. SUPABASE DATA LAYER
+        // =====================================================
+        async function fetchStateFromSupabase() {
+            const [tenantsRes, paymentsRes, readingsRes, spRes, feesRes, uaRes] = await Promise.all([
+                supabaseClient.from('tenants').select('*'),
+                supabaseClient.from('payments').select('*').order('created_at', { ascending: false }),
+                supabaseClient.from('service_readings').select('*').order('created_at', { ascending: false }),
+                supabaseClient.from('service_payments').select('*').order('created_at', { ascending: false }),
+                supabaseClient.from('admin_fees').select('*').order('month', { ascending: false }),
+                supabaseClient.from('utility_accounts').select('*'),
+            ]);
+            return {
+                tenants: (tenantsRes.data || []).map(t => ({
+                    id: t.id, name: t.name, phone: t.phone, payday: t.payday,
+                    rent: t.rent, start: t.start_date, end: t.end_date
+                })),
+                payments: (paymentsRes.data || []).map(p => ({
+                    id: p.id, tenantId: p.tenant_id, concept: p.concept,
+                    amount: p.amount, month: p.month,
+                    receipt: p.receipt_url, receiptType: p.receipt_type,
+                    createdAt: p.created_at
+                })),
+                services: (readingsRes.data || []).map(r => ({
+                    id: r.id, tenantId: r.tenant_id, type: r.type,
+                    meterReading: r.meter_reading, date: r.date
+                })),
+                servicePayments: (spRes.data || []).map(sp => ({
+                    id: sp.id, tenantId: sp.tenant_id, type: sp.type,
+                    amount: sp.amount, month: sp.month, date: sp.date,
+                    supportUrl: sp.support_url, supportType: sp.support_type
+                })),
+                adminfees: (feesRes.data || []).map(af => ({
+                    id: af.id, month: af.month, amount: af.amount,
+                    status: af.status, createdAt: af.created_at
+                })),
+                utilityAccounts: (uaRes.data || []).map(ua => ({
+                    id: ua.id, type: ua.type, contract: ua.contract,
+                    dueDate: ua.due_date, lastPaidMonth: ua.last_paid_month
+                }))
+            };
+        }
+
+        async function uploadSupportToStorage(file) {
+            const ext = file.name.split('.').pop().toLowerCase();
+            const path = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}.${ext}`;
+            const { error } = await supabaseClient.storage
+                .from('supports')
+                .upload(path, file, { cacheControl: '3600', upsert: false });
+            if (error) throw error;
+            const { data: { publicUrl } } = supabaseClient.storage.from('supports').getPublicUrl(path);
+            return { url: publicUrl, type: file.type.startsWith('image/') ? 'image' : 'pdf' };
+        }
+
+        async function saveAdminFeeToSupabase(data) {
+            if (data.id) {
+                const { error } = await supabaseClient.from('admin_fees')
+                    .update({ amount: parseFloat(data.amount), status: data.status })
+                    .eq('id', data.id);
+                if (error) throw error;
+            } else {
+                const { error } = await supabaseClient.from('admin_fees')
+                    .insert({ month: data.month, amount: parseFloat(data.amount), status: data.status });
+                if (error) throw error;
+            }
+        }
+
+        async function saveServicePaymentToSupabase(data) {
+            const { error } = await supabaseClient.from('service_payments').insert({
+                tenant_id: data.tenantId,
+                type: data.type,
+                amount: parseFloat(data.amount),
+                month: data.month,
+                support_url: data.supportUrl || null,
+                support_type: data.supportType || null
+            });
+            if (error) throw error;
+        }
+
+        async function ensureCurrentYearAdminFees() {
+            const year = new Date().getFullYear();
+            const months = ['01','02','03','04','05','06','07','08','09','10','11','12'];
+            const existing = state.adminfees.map(af => af.month);
+            const missing = months.map(m => `${year}-${m}`).filter(k => !existing.includes(k));
+            if (missing.length > 0) {
+                await supabaseClient.from('admin_fees').insert(
+                    missing.map(month => ({ month, amount: 204800, status: 'Pendiente' }))
+                );
+            }
+        }
+
+        // =====================================================
+        // 5. SYNC
+        // =====================================================
         async function sync() {
-            state = await getData();
+            try {
+                state = await fetchStateFromSupabase();
+                if (currentRole === 'owner') {
+                    await ensureCurrentYearAdminFees();
+                    // Re-fetch admin fees after potential creation
+                    const { data } = await supabaseClient.from('admin_fees').select('*').order('month', { ascending: false });
+                    state.adminfees = (data || []).map(af => ({
+                        id: af.id, month: af.month, amount: af.amount,
+                        status: af.status, createdAt: af.created_at
+                    }));
+                }
+            } catch (e) {
+                console.error('Sync error:', e);
+            }
             renderAll();
         }
 
-        async function checkAuth() {
-            const passInput = document.getElementById('auth-pass');
-            if (passInput.value === '1234') {
-                document.getElementById('auth-overlay').style.display = 'none';
-                sessionStorage.setItem('authed', 'true');
-                
-                // Intentamos cargar de la nube al entrar, pero si falla, 
-                // mostramos lo que haya local para que no se bloquee
-                try {
-                    await loadFromCloud();
-                } catch (e) {
-                    console.warn("No se pudo cargar de la nube, usando datos locales");
-                }
-                
-                await sync(); 
-            } else {
-                alert('Clave incorrecta');
-            }
+        // =====================================================
+        // 6. EXPORT
+        // =====================================================
+        function exportDataJSON() {
+            const fileName = `propify_backup_${new Date().toISOString().split('T')[0]}.json`;
+            const json = JSON.stringify(state, null, 2);
+            const blob = new Blob([json], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url; a.download = fileName;
+            document.body.appendChild(a); a.click(); document.body.removeChild(a);
+            URL.revokeObjectURL(url);
         }
 
-        function logout() { sessionStorage.removeItem('authed'); location.reload(); }
-
+        // =====================================================
+        // 7. NAVIGATION & MODALS
+        // =====================================================
         function navigate(view) {
             document.querySelectorAll('main > section').forEach(s => s.classList.add('hidden'));
             document.getElementById(`view-${view}`).classList.remove('hidden');
@@ -944,23 +1004,15 @@
             window.scrollTo({ top: 0, behavior: 'smooth' });
         }
 
-        function closeModals() { 
-            document.querySelectorAll('.modal-overlay').forEach(m => { if(m.id !== 'confirm-modal') m.style.display = 'none'; }); 
+        function closeModals() {
+            document.querySelectorAll('.modal-overlay').forEach(m => { if (m.id !== 'confirm-modal') m.style.display = 'none'; });
         }
 
         function closeConfirm() { document.getElementById('confirm-modal').style.display = 'none'; }
 
-        window.markUtilityPaid = async function(id, month) {
-            const idx = state.utilityAccounts.findIndex(u => u.id === id);
-            if(idx !== -1) {
-                state.utilityAccounts[idx].lastPaidMonth = month;
-                await saveData(state);
-                await syncToCloud();
-                sync();
-            }
-        };
-
-        // --- 4. RENDERIZADO VISUAL ---
+        // =====================================================
+        // 8. RENDER FUNCTIONS
+        // =====================================================
         function renderAll() {
             renderDashboard();
             renderTenants();
@@ -973,25 +1025,24 @@
         function renderDashboard() {
             const now = new Date();
             const currMonthStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-            const meses = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+            const meses = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
             const nombreMes = meses[now.getMonth()];
             const alertsDiv = document.getElementById('dashboard-alerts');
             const alerts = [];
 
             const curAdmin = state.adminfees.find(af => af.month === currMonthStr);
             if (curAdmin && curAdmin.status === 'Pendiente') {
-                alerts.push({ 
-                    type: 'warning', 
-                    title: 'Administración Pendiente', 
-                    text: `Cuota de ${currMonthStr}. <br><strong>Valor a pagar: $${parseFloat(curAdmin.amount).toLocaleString()}</strong>` 
+                alerts.push({
+                    type: 'warning',
+                    title: 'Administración Pendiente',
+                    text: `Cuota de ${currMonthStr}. <br><strong>Valor a pagar: $${parseFloat(curAdmin.amount).toLocaleString()}</strong>`
                 });
             }
 
             const yearStr = now.getFullYear().toString();
             const adminThisYear = state.adminfees.filter(af => af.month.startsWith(`${yearStr}-`));
             const adminPaidCount = adminThisYear.filter(af => af.status === 'Pagado').length;
-            const admDeud = adminThisYear.filter(af => af.status === 'Pendiente').reduce((s,af)=> s+parseFloat(af.amount),0);
-            
+            const admDeud = adminThisYear.filter(af => af.status === 'Pendiente').reduce((s, af) => s + parseFloat(af.amount), 0);
             document.getElementById('admin-stat-title').innerText = `Admin Pagada (${yearStr})`;
             document.getElementById('stat-admin-count').innerText = `${adminPaidCount}/12`;
             document.getElementById('stat-admin-debt').innerText = `Deuda: $${admDeud.toLocaleString()}`;
@@ -999,12 +1050,9 @@
             let totalMoraInquilinos = 0;
             state.tenants.forEach(t => {
                 let expectedRent = parseFloat(t.rent);
-                let isFraction = false;
-                let daysToCharge = 30;
-
+                let isFraction = false; let daysToCharge = 30;
                 if (t.start && t.start.startsWith(currMonthStr)) {
-                    const startParts = t.start.split('-');
-                    const startDay = parseInt(startParts[2]);
+                    const startDay = parseInt(t.start.split('-')[2]);
                     const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
                     daysToCharge = daysInMonth - startDay + 1;
                     if (daysToCharge > 0 && daysToCharge < daysInMonth) {
@@ -1012,290 +1060,406 @@
                         expectedRent = Math.round((parseFloat(t.rent) / 30) * daysToCharge);
                     }
                 }
-
-                const paidRent = state.payments.filter(p => p.tenantId === t.id && p.month === currMonthStr && (!p.concept || p.concept === 'Arriendo Mensual' || p.concept === 'Fracción')).reduce((s,p)=> s+parseFloat(p.amount),0);
+                const paidRent = state.payments
+                    .filter(p => p.tenantId === t.id && p.month === currMonthStr && (!p.concept || p.concept === 'Arriendo Mensual' || p.concept === 'Fracción'))
+                    .reduce((s, p) => s + parseFloat(p.amount), 0);
                 const debt = expectedRent - paidRent;
                 if (debt > 0) totalMoraInquilinos += debt;
-
                 if (debt > 0 && now.getDate() > (parseInt(t.payday) || 5)) {
-                    let msgWaMora = isFraction ? 
-                        `ATENCIÓN "${t.name.toUpperCase()}": Se notifica cobro de fracción de arrendamiento (${daysToCharge} días) correspondiente al mes de "${nombreMes}" por un valor de $${debt.toLocaleString()}.` :
-                        `ATENCIÓN "${t.name.toUpperCase()}": Se notifica advertencia de incumplimiento de pago correspondiente al mes "${nombreMes}" por un valor de $${debt.toLocaleString()}.`;
-                    
-                    alerts.push({ 
-                        type: 'danger', 
-                        title: isFraction ? `Fracción Pendiente: ${t.name}` : `Mora de Arriendo: ${t.name}`, 
-                        text: `Valor a pagar: <strong>$${debt.toLocaleString()}</strong>`, 
-                        phone: t.phone,
-                        waMsg: msgWaMora
+                    const msgWaMora = isFraction
+                        ? `ATENCIÓN "${t.name.toUpperCase()}": cobro de fracción (${daysToCharge} días) mes "${nombreMes}" por $${debt.toLocaleString()}.`
+                        : `ATENCIÓN "${t.name.toUpperCase()}": incumplimiento de pago mes "${nombreMes}" por $${debt.toLocaleString()}.`;
+                    alerts.push({
+                        type: 'danger',
+                        title: isFraction ? `Fracción Pendiente: ${t.name}` : `Mora de Arriendo: ${t.name}`,
+                        text: `Valor a pagar: <strong>$${debt.toLocaleString()}</strong>`,
+                        phone: t.phone, waMsg: msgWaMora
                     });
                 }
             });
 
             alertsDiv.innerHTML = alerts.map(a => `
                 <div class="alert-item alert-${a.type}">
-                    <div style="flex:1;">
-                        <h4 style="margin-bottom:6px;">${a.title}</h4>
-                        <p>${a.text}</p>
-                    </div>
-                    ${a.waMsg ? `<button class="btn btn-whatsapp" onclick="sendWA('${a.phone || ''}', '${a.waMsg}')"><i data-lucide="message-circle"></i></button>` : ''}
-                </div>
-            `).join('');
+                    <div style="flex:1;"><h4 style="margin-bottom:6px;">${a.title}</h4><p>${a.text}</p></div>
+                    ${a.waMsg ? `<button class="btn btn-whatsapp" data-phone="${(a.phone||'').replace(/"/g,'')}" data-msg="${a.waMsg.replace(/"/g,'&quot;')}" onclick="sendWA(this.dataset.phone,this.dataset.msg)"><i data-lucide="message-circle"></i></button>` : ''}
+                </div>`).join('');
 
             document.getElementById('stat-tenants').innerText = state.tenants.length;
-            const mesColl = state.payments.filter(p => p.month === currMonthStr).reduce((s,p)=> s+parseFloat(p.amount),0);
+            const mesColl = state.payments.filter(p => p.month === currMonthStr).reduce((s, p) => s + parseFloat(p.amount), 0);
             document.getElementById('stat-monthly').innerText = `$${mesColl.toLocaleString()}`;
             document.getElementById('stat-debt').innerText = `$${totalMoraInquilinos.toLocaleString()}`;
 
-            const recentTbody = document.getElementById('recent-payments-tbody');
-            recentTbody.innerHTML = state.payments.sort((a,b)=> new Date(b.createdAt) - new Date(a.createdAt)).slice(0,5).map(p => {
-                const t = state.tenants.find(x => x.id === p.tenantId);
-                return `<tr><td>${new Date(p.createdAt).toLocaleDateString()}</td><td>${t?.name || '-'}</td><td>$${parseFloat(p.amount).toLocaleString()}</td><td><button class="btn btn-ghost" onclick="viewReceipt('${p.id}')"><i data-lucide="image"></i></button></td></tr>`;
-            }).join('');
+            document.getElementById('recent-payments-tbody').innerHTML = [...state.payments]
+                .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+                .slice(0, 5)
+                .map(p => {
+                    const t = state.tenants.find(x => x.id === p.tenantId);
+                    return `<tr>
+                        <td data-label="Fecha Registro">${new Date(p.createdAt).toLocaleDateString()}</td>
+                        <td data-label="Inquilino">${t?.name || '-'}</td>
+                        <td data-label="Concepto">${p.concept || '-'}</td>
+                        <td data-label="Monto">$${parseFloat(p.amount).toLocaleString()}</td>
+                        <td data-label="Acciones">${p.receipt ? `<button class="btn btn-ghost" onclick="viewReceipt('${p.id}')"><i data-lucide="paperclip"></i></button>` : ''}</td>
+                    </tr>`;
+                }).join('');
         }
 
         function renderTenants() {
-            const body = document.getElementById('tenants-tbody');
-            body.innerHTML = state.tenants.map(t => `
+            document.getElementById('tenants-tbody').innerHTML = state.tenants.map(t => `
                 <tr>
-                    <td><strong>${t.name}</strong></td>
-                    <td>${t.phone || '-'}</td>
-                    <td>$${parseFloat(t.rent).toLocaleString()}</td>
-                    <td><button class="btn btn-ghost" onclick="openTenantModal('${t.id}')"><i data-lucide="edit-3"></i></button></td>
-                </tr>
-            `).join('');
+                    <td data-label="Nombre"><strong>${t.name}</strong></td>
+                    <td data-label="WhatsApp">${t.phone || '-'}</td>
+                    <td data-label="Canon">$${parseFloat(t.rent).toLocaleString()}</td>
+                    <td data-label="Vencimiento">${t.end || '-'}</td>
+                    <td data-label="Acciones">
+                        <button class="btn btn-ghost" onclick="openTenantModal('${t.id}')"><i data-lucide="edit-3"></i></button>
+                        <button class="btn btn-ghost" onclick="askDeleteTenant('${t.id}')"><i data-lucide="trash-2"></i></button>
+                    </td>
+                </tr>`).join('');
         }
 
         function renderPayments() {
-            const body = document.getElementById('payments-tbody');
-            body.innerHTML = state.payments.sort((a,b)=> new Date(b.createdAt) - new Date(a.createdAt)).map(p => {
+            document.getElementById('payments-tbody').innerHTML = state.payments.map(p => {
                 const t = state.tenants.find(x => x.id === p.tenantId);
-                return `<tr><td>${new Date(p.createdAt).toLocaleDateString()}</td><td>${t?.name || '-'}</td><td>$${parseFloat(p.amount).toLocaleString()}</td><td>${p.month}</td><td><button class="btn btn-ghost" onclick="askDeletePayment('${p.id}')"><i data-lucide="trash-2"></i></button></td></tr>`;
+                return `<tr>
+                    <td data-label="Fecha Registro">${new Date(p.createdAt).toLocaleDateString()}</td>
+                    <td data-label="Inquilino">${t?.name || '-'}</td>
+                    <td data-label="Concepto">${p.concept || '-'}</td>
+                    <td data-label="Monto">$${parseFloat(p.amount).toLocaleString()}</td>
+                    <td data-label="Mes Aplicado">${p.month}</td>
+                    <td data-label="Acciones">
+                        ${p.receipt ? `<button class="btn btn-ghost" onclick="viewReceipt('${p.id}')"><i data-lucide="paperclip"></i></button>` : ''}
+                        <button class="btn btn-ghost" onclick="askDeletePayment('${p.id}')"><i data-lucide="trash-2"></i></button>
+                    </td>
+                </tr>`;
             }).join('');
         }
 
         function renderAdminFees() {
-            const body = document.getElementById('adminfees-tbody');
-            body.innerHTML = [...state.adminfees].sort((a,b)=> b.month.localeCompare(a.month)).map(af => `
-                <tr><td>${af.month}</td><td>$${parseFloat(af.amount).toLocaleString()}</td><td><span class="badge ${af.status === 'Pagado' ? 'badge-success' : 'badge-danger'}">${af.status}</span></td><td><button class="btn btn-ghost" onclick="openAdminModal('${af.id}')"><i data-lucide="edit-3"></i></button></td></tr>
-            `).join('');
+            document.getElementById('adminfees-tbody').innerHTML = [...state.adminfees]
+                .sort((a, b) => b.month.localeCompare(a.month))
+                .map(af => `
+                <tr>
+                    <td data-label="Registro">${af.createdAt ? new Date(af.createdAt).toLocaleDateString() : '-'}</td>
+                    <td data-label="Mes/Año">${af.month}</td>
+                    <td data-label="Valor">$${parseFloat(af.amount).toLocaleString()}</td>
+                    <td data-label="Estado"><span class="badge ${af.status === 'Pagado' ? 'badge-success' : 'badge-danger'}">${af.status}</span></td>
+                    <td data-label="Acciones">
+                        ${currentRole === 'owner' ? `<button class="btn btn-ghost" onclick="openAdminModal('${af.id}')"><i data-lucide="edit-3"></i></button>` : ''}
+                    </td>
+                </tr>`).join('');
         }
 
         function renderServices() {
             document.getElementById('utility-accounts-tbody').innerHTML = state.utilityAccounts.map(u => `
-                <tr><td><strong>${u.type}</strong></td><td>${u.contract}</td><td><button class="btn btn-ghost" onclick="openUtilityModal('${u.id}')"><i data-lucide="edit-3"></i></button></td></tr>
-            `).join('');
+                <tr>
+                    <td data-label="Servicio"><strong>${u.type}</strong></td>
+                    <td data-label="NIC / Contrato">${u.contract}</td>
+                    <td data-label="Vencimiento">${u.dueDate || '-'}</td>
+                    <td data-label="Acciones">
+                        <button class="btn btn-ghost" onclick="openUtilityModal('${u.id}')"><i data-lucide="edit-3"></i></button>
+                        <button class="btn btn-ghost" onclick="askDeleteUtility('${u.id}')"><i data-lucide="trash-2"></i></button>
+                    </td>
+                </tr>`).join('');
+
+            document.getElementById('services-readings-tbody').innerHTML = state.services.map(r => {
+                const t = state.tenants.find(x => x.id === r.tenantId);
+                return `<tr>
+                    <td data-label="Fecha">${r.date || '-'}</td>
+                    <td data-label="Servicio">${r.type}</td>
+                    <td data-label="Inquilino">${t?.name || '-'}</td>
+                    <td data-label="Lectura">${r.meterReading}</td>
+                    <td data-label="Acciones">
+                        <button class="btn btn-ghost" onclick="askDeleteReading('${r.id}')"><i data-lucide="trash-2"></i></button>
+                    </td>
+                </tr>`;
+            }).join('');
+
+            document.getElementById('services-payments-tbody').innerHTML = state.servicePayments.map(sp => {
+                const t = state.tenants.find(x => x.id === sp.tenantId);
+                const supportBtn = sp.supportUrl
+                    ? `<button class="btn btn-ghost" onclick="viewServiceSupport('${sp.id}')"><i data-lucide="paperclip"></i></button>`
+                    : '';
+                const deleteBtn = currentRole === 'owner'
+                    ? `<button class="btn btn-ghost" onclick="askDeleteServicePayment('${sp.id}')"><i data-lucide="trash-2"></i></button>`
+                    : '';
+                return `<tr>
+                    <td data-label="Fecha">${sp.date || '-'}</td>
+                    <td data-label="Servicio">${sp.type}</td>
+                    <td data-label="Inquilino">${t?.name || '-'}</td>
+                    <td data-label="Monto">$${parseFloat(sp.amount).toLocaleString()}</td>
+                    <td data-label="Mes/Año">${sp.month}</td>
+                    <td data-label="Acciones">${supportBtn} ${deleteBtn}</td>
+                </tr>`;
+            }).join('');
         }
 
-        // --- 5. LÓGICA DE FORMULARIOS CON NUBE ---
+        // =====================================================
+        // 9. FORM HANDLERS
+        // =====================================================
         async function handleTenantSubmit(e) {
             e.preventDefault();
             const id = document.getElementById('t-id-hidden').value;
-            const data = { id: id || Date.now().toString(), name: document.getElementById('t-name').value, phone: document.getElementById('t-phone').value, payday: document.getElementById('t-payday').value, rent: document.getElementById('t-rent').value, start: document.getElementById('t-start').value, end: document.getElementById('t-end').value };
-            if (id) { const idx = state.tenants.findIndex(x => x.id == id); state.tenants[idx] = data; } else state.tenants.push(data);
-            await saveData(state); await syncToCloud(); closeModals(); sync();
+            const data = {
+                name: document.getElementById('t-name').value,
+                phone: document.getElementById('t-phone').value,
+                payday: parseInt(document.getElementById('t-payday').value) || null,
+                rent: parseFloat(document.getElementById('t-rent').value),
+                start_date: document.getElementById('t-start').value,
+                end_date: document.getElementById('t-end').value || null
+            };
+            let err;
+            if (id) { ({ error: err } = await supabaseClient.from('tenants').update(data).eq('id', id)); }
+            else { ({ error: err } = await supabaseClient.from('tenants').insert(data)); }
+            if (err) { alert('Error: ' + err.message); return; }
+            closeModals(); await sync();
         }
 
         async function handlePaymentSubmit(e) {
             e.preventDefault();
             const file = document.getElementById('p-file').files[0];
-            let receipt = '';
-            if (file) receipt = await new Promise(r => { const fr = new FileReader(); fr.onload = ev => r(ev.target.result); fr.readAsDataURL(file); });
-            state.payments.push({ id: Date.now().toString(), tenantId: document.getElementById('p-tenant').value, concept: document.getElementById('p-concept').value, amount: document.getElementById('p-amount').value, month: document.getElementById('p-month').value, receipt: receipt, createdAt: new Date().toISOString() });
-            await saveData(state); await syncToCloud(); closeModals(); sync();
+            let receiptUrl = null, receiptType = null;
+            if (file) {
+                try {
+                    const r = await uploadSupportToStorage(file);
+                    receiptUrl = r.url; receiptType = r.type;
+                } catch (err) { alert('Error al subir soporte: ' + err.message); return; }
+            }
+            const { error } = await supabaseClient.from('payments').insert({
+                tenant_id: document.getElementById('p-tenant').value,
+                concept: document.getElementById('p-concept').value,
+                amount: parseFloat(document.getElementById('p-amount').value),
+                month: document.getElementById('p-month').value,
+                receipt_url: receiptUrl,
+                receipt_type: receiptType
+            });
+            if (error) { alert('Error: ' + error.message); return; }
+            closeModals(); await sync();
         }
 
         async function handleAdminSubmit(e) {
             e.preventDefault();
-            const id = document.getElementById('a-id-hidden').value;
-            if (id) {
-                const idx = state.adminfees.findIndex(af => af.id == id);
-                state.adminfees[idx].amount = document.getElementById('a-amount').value;
-                state.adminfees[idx].status = document.getElementById('a-status').value;
-            } else {
-                state.adminfees.push({ id: Date.now().toString(), month: document.getElementById('a-month').value, amount: document.getElementById('a-amount').value, status: document.getElementById('a-status').value, date: new Date().toLocaleDateString(), createdAt: new Date().toISOString() });
-            }
-            await saveData(state); await syncToCloud(); closeModals(); sync();
+            try {
+                await saveAdminFeeToSupabase({
+                    id: document.getElementById('a-id-hidden').value || null,
+                    month: document.getElementById('a-month').value,
+                    amount: document.getElementById('a-amount').value,
+                    status: document.getElementById('a-status').value
+                });
+            } catch (err) { alert('Error: ' + err.message); return; }
+            closeModals(); await sync();
         }
 
         async function handleServicePaymentSubmit(e) {
             e.preventDefault();
-            state.servicePayments.push({ id: Date.now().toString(), tenantId: document.getElementById('sp-tenant').value, type: document.getElementById('sp-type').value, amount: document.getElementById('sp-amount').value, month: document.getElementById('sp-month').value, date: new Date().toLocaleDateString() });
-            await saveData(state); await syncToCloud(); closeModals(); sync();
+            const file = document.getElementById('sp-support').files[0];
+            let supportUrl = null, supportType = null;
+            if (file) {
+                try {
+                    const r = await uploadSupportToStorage(file);
+                    supportUrl = r.url; supportType = r.type;
+                } catch (err) { alert('Error al subir soporte: ' + err.message); return; }
+            }
+            try {
+                await saveServicePaymentToSupabase({
+                    tenantId: document.getElementById('sp-tenant').value,
+                    type: document.getElementById('sp-type').value,
+                    amount: document.getElementById('sp-amount').value,
+                    month: document.getElementById('sp-month').value,
+                    supportUrl, supportType
+                });
+            } catch (err) { alert('Error: ' + err.message); return; }
+            closeModals(); await sync();
         }
 
         async function handleReadingSubmit(e) {
             e.preventDefault();
-            state.services.push({ id: Date.now().toString(), tenantId: document.getElementById('r-tenant').value, type: document.getElementById('r-type').value, meterReading: document.getElementById('r-meter').value, date: new Date().toLocaleDateString() });
-            await saveData(state); await syncToCloud(); closeModals(); sync();          
+            const { error } = await supabaseClient.from('service_readings').insert({
+                tenant_id: document.getElementById('r-tenant').value,
+                type: document.getElementById('r-type').value,
+                meter_reading: parseFloat(document.getElementById('r-meter').value)
+            });
+            if (error) { alert('Error: ' + error.message); return; }
+            closeModals(); await sync();
         }
 
         async function handleUtilitySubmit(e) {
             e.preventDefault();
             const id = document.getElementById('u-id-hidden').value;
-            if(id) {
-                const idx = state.utilityAccounts.findIndex(x => x.id == id);
-                state.utilityAccounts[idx].type = document.getElementById('u-type').value;
-                state.utilityAccounts[idx].contract = document.getElementById('u-contract').value;
-                state.utilityAccounts[idx].dueDate = document.getElementById('u-due-date').value;
-            } else {
-                state.utilityAccounts.push({ id: Date.now().toString(), type: document.getElementById('u-type').value, contract: document.getElementById('u-contract').value, dueDate: document.getElementById('u-due-date').value });
-            }
-            await saveData(state); await syncToCloud(); closeModals(); sync();
+            const data = {
+                type: document.getElementById('u-type').value,
+                contract: document.getElementById('u-contract').value,
+                due_date: document.getElementById('u-due-date').value
+            };
+            let err;
+            if (id) { ({ error: err } = await supabaseClient.from('utility_accounts').update(data).eq('id', id)); }
+            else { ({ error: err } = await supabaseClient.from('utility_accounts').insert(data)); }
+            if (err) { alert('Error: ' + err.message); return; }
+            closeModals(); await sync();
         }
 
-        // --- 6. APERTURA DE MODALES ---
+        // =====================================================
+        // 10. MODAL OPENERS
+        // =====================================================
         function openTenantModal(id = null) {
-            const f = document.getElementById('tenant-form'); f.reset(); document.getElementById('t-id-hidden').value = id || '';
-            if (id) { 
-                const t = state.tenants.find(x => x.id == id); 
-                document.getElementById('t-name').value = t.name; 
-                document.getElementById('t-phone').value = t.phone; 
-                document.getElementById('t-payday').value = t.payday; 
-                document.getElementById('t-rent').value = t.rent; 
-                document.getElementById('t-start').value = t.start; 
-                document.getElementById('t-end').value = t.end || ''; 
+            document.getElementById('tenant-form').reset();
+            document.getElementById('t-id-hidden').value = id || '';
+            if (id) {
+                const t = state.tenants.find(x => x.id === id);
+                if (t) {
+                    document.getElementById('t-name').value = t.name || '';
+                    document.getElementById('t-phone').value = t.phone || '';
+                    document.getElementById('t-payday').value = t.payday || '';
+                    document.getElementById('t-rent').value = t.rent || '';
+                    document.getElementById('t-start').value = t.start || '';
+                    document.getElementById('t-end').value = t.end || '';
+                }
             }
             document.getElementById('tenant-modal').style.display = 'flex';
         }
 
         function openAdminModal(id = null) {
-            const f = document.getElementById('admin-form'); f.reset(); document.getElementById('a-id-hidden').value = id || '';
-            if (id) { 
-                const af = state.adminfees.find(x => x.id == id); 
-                document.getElementById('a-month').value = af.month; 
-                document.getElementById('a-amount').value = af.amount; 
-                document.getElementById('a-status').value = af.status; 
+            document.getElementById('admin-form').reset();
+            document.getElementById('a-id-hidden').value = id || '';
+            if (id) {
+                const af = state.adminfees.find(x => x.id === id);
+                if (af) {
+                    document.getElementById('a-month').value = af.month;
+                    document.getElementById('a-amount').value = af.amount;
+                    document.getElementById('a-status').value = af.status;
+                }
             }
             document.getElementById('admin-modal').style.display = 'flex';
         }
 
         function openPaymentModal() {
+            document.getElementById('payment-form').reset();
             document.getElementById('p-tenant').innerHTML = state.tenants.map(t => `<option value="${t.id}">${t.name}</option>`).join('');
             document.getElementById('payment-modal').style.display = 'flex';
         }
 
         function openUtilityModal(id = null) {
-            const f = document.getElementById('utility-form'); f.reset(); document.getElementById('u-id-hidden').value = id || '';
-            if(id) {
-                const u = state.utilityAccounts.find(x => x.id == id);
-                document.getElementById('u-type').value = u.type;
-                document.getElementById('u-contract').value = u.contract;
-                document.getElementById('u-due-date').value = u.dueDate;
+            document.getElementById('utility-form').reset();
+            document.getElementById('u-id-hidden').value = id || '';
+            if (id) {
+                const u = state.utilityAccounts.find(x => x.id === id);
+                if (u) {
+                    document.getElementById('u-type').value = u.type;
+                    document.getElementById('u-contract').value = u.contract;
+                    document.getElementById('u-due-date').value = u.dueDate || '';
+                }
             }
             document.getElementById('utility-modal').style.display = 'flex';
         }
 
         function openReadingModal() {
+            document.getElementById('reading-form').reset();
             document.getElementById('r-tenant').innerHTML = state.tenants.map(t => `<option value="${t.id}">${t.name}</option>`).join('');
             document.getElementById('reading-modal').style.display = 'flex';
         }
 
         function openServicePaymentModal() {
+            document.getElementById('service-payment-form').reset();
             document.getElementById('sp-tenant').innerHTML = state.tenants.map(t => `<option value="${t.id}">${t.name}</option>`).join('');
             document.getElementById('service-payment-modal').style.display = 'flex';
         }
 
-        function viewReceipt(pid) {
-            const p = state.payments.find(x => x.id == pid);
+        // =====================================================
+        // 11. SUPPORT VIEWER (image + PDF)
+        // =====================================================
+        function viewSupport(url, type) {
             const img = document.getElementById('viewer-img');
+            const pdf = document.getElementById('viewer-pdf');
+            const pdfLink = document.getElementById('viewer-pdf-link');
             const emp = document.getElementById('viewer-empty');
-            if (p?.receipt) { img.src = p.receipt; img.style.display = 'block'; emp.style.display = 'none'; }
-            else { img.style.display = 'none'; emp.style.display = 'flex'; }
+            img.style.display = 'none'; pdf.style.display = 'none';
+            pdfLink.style.display = 'none'; emp.style.display = 'none';
+            if (url) {
+                if (type === 'pdf') {
+                    pdf.src = url; pdf.style.display = 'block';
+                    pdfLink.href = url; pdfLink.style.display = 'inline-flex';
+                } else {
+                    img.src = url; img.style.display = 'block';
+                }
+            } else { emp.style.display = 'flex'; }
             document.getElementById('viewer-modal').style.display = 'flex';
         }
 
-        // --- 7. SISTEMA DE BORRADO ---
+        function viewReceipt(pid) {
+            const p = state.payments.find(x => x.id === pid);
+            viewSupport(p?.receipt || null, p?.receiptType || 'image');
+        }
+
+        function viewServiceSupport(spid) {
+            const sp = state.servicePayments.find(x => x.id === spid);
+            viewSupport(sp?.supportUrl || null, sp?.supportType || 'image');
+        }
+
+        // =====================================================
+        // 12. DELETE ACTIONS
+        // =====================================================
         let deleteAction = null;
-        function showConfirm(text, action) { 
-            document.getElementById('confirm-text').innerText = text; 
-            deleteAction = action; 
-            document.getElementById('confirm-modal').style.display = 'flex'; 
-        }
-        document.getElementById('confirm-yes').onclick = async () => { if (deleteAction) await deleteAction(); deleteAction = null; closeConfirm(); };
 
-        function askDeleteTenant(id) { showConfirm('¿Eliminar inquilino?', async () => { state.tenants = state.tenants.filter(t => t.id !== id); await saveData(state); await syncToCloud(); sync(); }); }
-        function askDeletePayment(id) { showConfirm('¿Borrar pago?', async () => { state.payments = state.payments.filter(p => p.id !== id); await saveData(state); await syncToCloud(); sync(); }); }
-        function askDeleteReading(id) { showConfirm('¿Borrar lectura?', async () => { state.services = state.services.filter(s => s.id !== id); await saveData(state); await syncToCloud(); sync(); }); }
-        function askDeleteServicePayment(id) { showConfirm('¿Borrar pago?', async () => { state.servicePayments = state.servicePayments.filter(sp => sp.id !== id); await saveData(state); await syncToCloud(); sync(); }); }
-        function askDeleteUtility(id) { showConfirm('¿Eliminar cuenta?', async () => { state.utilityAccounts = state.utilityAccounts.filter(u => u.id !== id); await saveData(state); await syncToCloud(); sync(); }); }
-
-        function sendWA(phone, msg) { 
-            const url = phone ? `https://wa.me/${phone.replace(/\D/g,'')}` : 'https://wa.me/';
-            window.open(`${url}?text=${encodeURIComponent(msg)}`, '_blank'); 
+        function showConfirm(text, action) {
+            document.getElementById('confirm-text').innerText = text;
+            deleteAction = action;
+            document.getElementById('confirm-modal').style.display = 'flex';
         }
 
-        // --- INICIO DE APLICACIÓN ---
+        document.getElementById('confirm-yes').onclick = async () => {
+            if (deleteAction) await deleteAction();
+            deleteAction = null;
+            closeConfirm();
+        };
+
+        function askDeleteTenant(id) { showConfirm('¿Eliminar inquilino?', async () => { await supabaseClient.from('tenants').delete().eq('id', id); await sync(); }); }
+        function askDeletePayment(id) { showConfirm('¿Borrar pago?', async () => { await supabaseClient.from('payments').delete().eq('id', id); await sync(); }); }
+        function askDeleteReading(id) { showConfirm('¿Borrar lectura?', async () => { await supabaseClient.from('service_readings').delete().eq('id', id); await sync(); }); }
+        function askDeleteServicePayment(id) { showConfirm('¿Borrar pago de servicio?', async () => { await supabaseClient.from('service_payments').delete().eq('id', id); await sync(); }); }
+        function askDeleteUtility(id) { showConfirm('¿Eliminar cuenta maestra?', async () => { await supabaseClient.from('utility_accounts').delete().eq('id', id); await sync(); }); }
+
+        window.markUtilityPaid = async function(id, month) {
+            await supabaseClient.from('utility_accounts').update({ last_paid_month: month }).eq('id', id);
+            await sync();
+        };
+
+        // =====================================================
+        // 13. UTILS
+        // =====================================================
+        function sendWA(phone, msg) {
+            const url = phone ? `https://wa.me/${phone.replace(/\D/g, '')}` : 'https://wa.me/';
+            window.open(`${url}?text=${encodeURIComponent(msg)}`, '_blank');
+        }
+
+        // =====================================================
+        // 14. APP INIT
+        // =====================================================
         window.onload = async () => {
-            try {
-                await initDB();
-                
-                // Si ya estaba autenticado anteriormente (sesión activa)
-                if (sessionStorage.getItem('authed')) {
+            // Handle auth state changes (also processes magic link hash on redirect)
+            supabaseClient.auth.onAuthStateChange(async (event, session) => {
+                if (session?.user) {
+                    currentUser = session.user;
+                    currentRole = await getUserRole(session.user.id);
                     document.getElementById('auth-overlay').style.display = 'none';
-                    await loadFromCloud(); // Intenta bajar cambios
-                    await sync();          // Muestra los datos
+                    const emailEl = document.getElementById('user-email-display');
+                    const sidebarEmailEl = document.getElementById('sidebar-user-email');
+                    if (emailEl) emailEl.textContent = session.user.email;
+                    if (sidebarEmailEl) sidebarEmailEl.textContent = session.user.email;
+                    applyRoleUI(currentRole);
+                    await sync();
+                } else {
+                    currentUser = null;
+                    currentRole = null;
+                    document.getElementById('auth-overlay').style.display = 'flex';
                 }
-            } catch (e) {
-                console.error("Fallo carga inicial", e);
-                // Si falla la nube, al menos intentamos mostrar lo local
-                if (sessionStorage.getItem('authed')) {
-                    sync();
-                }
+            });
+
+            // Check for an existing active session on page load
+            const { data: { session } } = await supabaseClient.auth.getSession();
+            if (!session) {
+                document.getElementById('auth-overlay').style.display = 'flex';
             }
         };
-        
-        // --- CONFIGURACIÓN DE NUBE GRATUITA ---
-const GIST_ID = 'd2c6ca2ad6ad9b41a96bfc58e8d9a637';
-const GITHUB_TOKEN = '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';
-
-// Esta función sube tus cambios a la nube automáticamente
-// Función para SUBIR cambios a GitHub (Ajustada para tu App)
-async function syncToCloud() {
-    try {
-        const response = await fetch(`https://api.github.com/gists/${GIST_ID}`, {
-            method: 'PATCH',
-            headers: {
-                'Authorization': `token ${GITHUB_TOKEN}`,
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-                files: {
-                    "propify_backup_local_2026-02-22 (2).json": {
-                        content: JSON.stringify(state, null, 2) // Usamos 'state' que es tu base de datos real
-                    }
-                }
-            })
-        });
-        if (response.ok) {
-            console.log("¡Sincronizado con la nube!");
-        }
-    } catch (error) {
-        console.error("Error sincronizando:", error);
-    }
-}
-
-// Función para DESCARGAR cambios de GitHub (Ajustada para tu App)
-async function loadFromCloud() {
-    try {
-        const response = await fetch(`https://api.github.com/gists/${GIST_ID}`);
-        if (!response.ok) return;
-
-        const gist = await response.json();
-        const fileName = "propify_backup_local_2026-02-22 (2).json";
-        
-        if (gist.files && gist.files[fileName]) {
-            const content = JSON.parse(gist.files[fileName].content);
-            if (Object.keys(content).length > 0) {
-                state = content; // Actualizamos el estado interno
-                await saveData(state); // Guardamos en la base de datos del navegador
-                console.log("¡Datos actualizados desde la nube!");
-            }
-        }
-    } catch (error) {
-        console.error("Error al cargar desde la nube:", error);
-    }
-}
     </script>
 </body>
 </html>
