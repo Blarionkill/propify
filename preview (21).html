@@ -783,10 +783,16 @@
     </div>
 
     <script>
+        
         // --- 1. CONFIGURACIÓN LOCAL INDEXED DB ---
         const DB_NAME = 'PropifyLocalDB';
         const STORE_NAME = 'mainData';
         let db;
+
+        // CONFIGURACIÓN NUBE (GITHUB GIST)
+        const GIST_ID = 'd2c6ca2ad6ad9b41a96bfc58e8d9a637';
+        const GITHUB_TOKEN = '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';
+        const CLOUD_FILENAME = "propify_backup_local_2026-02-22 (2).json";
 
         async function initDB() {
             return new Promise((resolve) => {
@@ -806,7 +812,6 @@
                 const req = store.get('main');
                 req.onsuccess = () => {
                     let d = req.result || { tenants: [], payments: [], services: [], servicePayments: [], adminfees: [], utilityAccounts: [] };
-                    
                     if (!d.tenants) d.tenants = [];
                     if (!d.payments) d.payments = [];
                     if (!d.services) d.services = [];
@@ -843,6 +848,47 @@
                 tx.objectStore(STORE_NAME).put(data, 'main');
                 tx.oncomplete = () => resolve();
             });
+        }
+
+        // --- FUNCIONES DE NUBE ---
+        async function syncToCloud() {
+            try {
+                const response = await fetch(`https://api.github.com/gists/${GIST_ID}`, {
+                    method: 'PATCH',
+                    headers: {
+                        'Authorization': `token ${GITHUB_TOKEN}`,
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        files: {
+                            [CLOUD_FILENAME]: {
+                                content: JSON.stringify(state, null, 2)
+                            }
+                        }
+                    })
+                });
+                if (response.ok) console.log("Sincronizado con GitHub");
+            } catch (error) {
+                console.error("Error sincronizando a la nube:", error);
+            }
+        }
+
+        async function loadFromCloud() {
+            try {
+                const response = await fetch(`https://api.github.com/gists/${GIST_ID}`);
+                if (!response.ok) return;
+                const gist = await response.json();
+                if (gist.files && gist.files[CLOUD_FILENAME]) {
+                    const content = JSON.parse(gist.files[CLOUD_FILENAME].content);
+                    if (Object.keys(content).length > 0) {
+                        state = content;
+                        await saveData(state);
+                        console.log("Datos cargados desde la nube");
+                    }
+                }
+            } catch (error) {
+                console.error("Error cargando desde la nube:", error);
+            }
         }
 
         async function exportDataJSON() {
@@ -892,12 +938,12 @@
 
         function closeConfirm() { document.getElementById('confirm-modal').style.display = 'none'; }
 
-        // --- EXPOSICIÓN GLOBAL PARA MARCAR SERVICIOS PAGADOS ---
         window.markUtilityPaid = async function(id, month) {
             const idx = state.utilityAccounts.findIndex(u => u.id === id);
             if(idx !== -1) {
                 state.utilityAccounts[idx].lastPaidMonth = month;
                 await saveData(state);
+                await syncToCloud();
                 sync();
             }
         };
@@ -920,7 +966,6 @@
             const alertsDiv = document.getElementById('dashboard-alerts');
             const alerts = [];
 
-            // 1. Alerta de Administración (Mes actual pendiente)
             const curAdmin = state.adminfees.find(af => af.month === currMonthStr);
             if (curAdmin && curAdmin.status === 'Pendiente') {
                 alerts.push({ 
@@ -930,7 +975,6 @@
                 });
             }
 
-            // Contador Anual de Admin Pagada
             const yearStr = now.getFullYear().toString();
             const adminThisYear = state.adminfees.filter(af => af.month.startsWith(`${yearStr}-`));
             const adminPaidCount = adminThisYear.filter(af => af.status === 'Pagado').length;
@@ -940,166 +984,61 @@
             document.getElementById('stat-admin-count').innerText = `${adminPaidCount}/12`;
             document.getElementById('stat-admin-debt').innerText = `Deuda: $${admDeud.toLocaleString()}`;
 
-
-            // 2. Alertas de Inquilinos (Mora y Contrato)
             let totalMoraInquilinos = 0;
-
             state.tenants.forEach(t => {
-                // --- Lógica de Fracción de Arrendamiento ---
                 let expectedRent = parseFloat(t.rent);
                 let isFraction = false;
                 let daysToCharge = 30;
 
-                // Solo aplicar fracción si la fecha de inicio es del MISMO MES que estamos evaluando
                 if (t.start && t.start.startsWith(currMonthStr)) {
                     const startParts = t.start.split('-');
                     const startDay = parseInt(startParts[2]);
-                    
-                    // Obtener días totales del mes actual
                     const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
-                    
-                    // Ej. Inicio 21 de Feb (28 días): 28 - 21 + 1 = 8 días de cobro
                     daysToCharge = daysInMonth - startDay + 1;
-                    
-                    // Si entró después del primer día del mes, aplicamos la regla de fracción
                     if (daysToCharge > 0 && daysToCharge < daysInMonth) {
                         isFraction = true;
-                        // Cálculo del canon proporcional (Canon / 30 días comerciales * días activos)
                         expectedRent = Math.round((parseFloat(t.rent) / 30) * daysToCharge);
                     }
                 }
 
-                // Restar pagos registrados como "Arriendo Mensual" o "Fracción"
                 const paidRent = state.payments.filter(p => p.tenantId === t.id && p.month === currMonthStr && (!p.concept || p.concept === 'Arriendo Mensual' || p.concept === 'Fracción')).reduce((s,p)=> s+parseFloat(p.amount),0);
                 const debt = expectedRent - paidRent;
+                if (debt > 0) totalMoraInquilinos += debt;
 
-                if (debt > 0) {
-                    totalMoraInquilinos += debt;
-                }
-
-                // Generación de Alerta de Deuda si ya pasó la fecha de pago
                 if (debt > 0 && now.getDate() > (parseInt(t.payday) || 5)) {
-                    let msgWaMora = "";
-                    let alertTitle = "";
-
-                    if (isFraction) {
-                        msgWaMora = `ATENCIÓN "${t.name.toUpperCase()}": Se notifica cobro de fracción de arrendamiento (${daysToCharge} días) correspondiente al mes de "${nombreMes}" por un valor de $${debt.toLocaleString()}. Por favor regularizar de inmediato.`;
-                        alertTitle = `Fracción Pendiente: ${t.name}`;
-                    } else {
-                        msgWaMora = `ATENCIÓN "${t.name.toUpperCase()}": Se notifica advertencia de incumplimiento de pago por concepto de arrendamiento correspondiente al mes "${nombreMes}" por un valor de $${debt.toLocaleString()}. Por favor regularizar de inmediato.`;
-                        alertTitle = `Mora de Arriendo: ${t.name}`;
-                    }
-
+                    let msgWaMora = isFraction ? 
+                        `ATENCIÓN "${t.name.toUpperCase()}": Se notifica cobro de fracción de arrendamiento (${daysToCharge} días) correspondiente al mes de "${nombreMes}" por un valor de $${debt.toLocaleString()}.` :
+                        `ATENCIÓN "${t.name.toUpperCase()}": Se notifica advertencia de incumplimiento de pago correspondiente al mes "${nombreMes}" por un valor de $${debt.toLocaleString()}.`;
+                    
                     alerts.push({ 
                         type: 'danger', 
-                        title: alertTitle, 
-                        text: `Valor a pagar: <strong>$${debt.toLocaleString()}</strong><br><span style="font-size:0.8rem; color:var(--danger); opacity:0.8; margin-top:5px; display:block;">Mensaje a enviar: <i>${msgWaMora}</i></span>`, 
+                        title: isFraction ? `Fracción Pendiente: ${t.name}` : `Mora de Arriendo: ${t.name}`, 
+                        text: `Valor a pagar: <strong>$${debt.toLocaleString()}</strong>`, 
                         phone: t.phone,
                         waMsg: msgWaMora
                     });
                 }
-
-                // Alerta de Contrato (Vencimiento)
-                if (t.end) {
-                    const endDate = new Date(t.end);
-                    const diffTime = endDate.getTime() - now.getTime();
-                    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-
-                    if (diffDays <= 30 && diffDays >= 0) {
-                        const msgWaPorVencer = `Hola ${t.name}, le recordamos amablemente que su contrato de arrendamiento está próximo a vencer en ${diffDays} días (${new Date(t.end).toLocaleDateString()}). Por favor comunícarse lo mas pronto posible para definir la situacion de prorroga .`;
-                        alerts.push({
-                            type: 'warning',
-                            title: `Contrato por Vencer: ${t.name}`,
-                            text: `El contrato finaliza en <strong>${diffDays} días</strong>.<br><span style="font-size:0.8rem; color:var(--warning); opacity:0.9; margin-top:5px; display:block;">Mensaje a enviar: <i>${msgWaPorVencer}</i></span>`,
-                            phone: t.phone,
-                            waMsg: msgWaPorVencer
-                        });
-                    } else if (diffDays < 0) {
-                        const msgWaVencido = `ATENCIÓN "${t.name.toUpperCase()}": Se notifica que su contrato de arrendamiento se encuentra VENCIDO hace ${Math.abs(diffDays)} días. Por favor comuníquese URGENTE con la administración.`;
-                        alerts.push({
-                            type: 'danger',
-                            title: `Contrato Vencido: ${t.name}`,
-                            text: `El contrato finalizó hace <strong>${Math.abs(diffDays)} días</strong>.<br><span style="font-size:0.8rem; color:var(--danger); opacity:0.8; margin-top:5px; display:block;">Mensaje a enviar: <i>${msgWaVencido}</i></span>`,
-                            phone: t.phone,
-                            waMsg: msgWaVencido
-                        });
-                    }
-                }
             });
 
-            // 3. Alertas de Servicios (Vencimiento a 5 días o menos)
-            state.utilityAccounts.forEach(u => {
-                if (u.dueDate) {
-                    const match = u.dueDate.match(/\d+/); // Extrae el número del día
-                    if (match) {
-                        const dueDay = parseInt(match[0]);
-                        const today = now.getDate();
-                        let diff = dueDay - today;
-                        
-                        // Lógica de salto de mes
-                        if (dueDay <= 5 && today >= 25) {
-                            const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
-                            diff = (daysInMonth - today) + dueDay;
-                        }
-
-                        // Ignorar alerta si el usuario lo marcó pagado para el mes actual
-                        if (u.lastPaidMonth === currMonthStr) return; 
-
-                        if (diff <= 5 && diff >= 0) {
-                            const msgWa = `Vencimiento de Servicio: ${u.type}\nLa cuenta maestra (NIC: ${u.contract}) vence en ${diff === 0 ? 'HOY' : diff + ' días'} (Día ${dueDay}).`;
-                            alerts.push({
-                                type: 'warning',
-                                title: `Vencimiento de Servicio: ${u.type}`,
-                                text: `La cuenta (NIC: ${u.contract}) vence en <strong>${diff === 0 ? 'HOY' : diff + ' días'}</strong>.<br><span style="font-size:0.8rem; color:var(--warning); opacity:0.9; margin-top:5px; display:block;">Mensaje a enviar: <i>${msgWa}</i></span>`,
-                                waMsg: msgWa,
-                                actionHtml: `<button class="btn btn-success" style="border-radius:10px; padding:10px; margin-right:8px; flex-shrink:0;" onclick="markUtilityPaid('${u.id}', '${currMonthStr}')" title="Marcar como pagado"><i data-lucide="check-circle" style="width:20px;"></i></button>`
-                            });
-                        } else if (diff < 0 && diff > -5) {
-                            const msgWa = `Vencimiento de Servicio: ${u.type}\nLa cuenta maestra (NIC: ${u.contract}) se encuentra VENCIDA hace ${Math.abs(diff)} días.`;
-                            alerts.push({
-                                type: 'danger',
-                                title: `Servicio Vencido: ${u.type}`,
-                                text: `La cuenta (NIC: ${u.contract}) se venció hace <strong>${Math.abs(diff)} días</strong>.<br><span style="font-size:0.8rem; color:var(--danger); opacity:0.9; margin-top:5px; display:block;">Mensaje a enviar: <i>${msgWa}</i></span>`,
-                                waMsg: msgWa,
-                                actionHtml: `<button class="btn btn-success" style="border-radius:10px; padding:10px; margin-right:8px; flex-shrink:0;" onclick="markUtilityPaid('${u.id}', '${currMonthStr}')" title="Marcar como pagado"><i data-lucide="check-circle" style="width:20px;"></i></button>`
-                            });
-                        }
-                    }
-                }
-            });
-
-            // Construir visualmente las alertas
             alertsDiv.innerHTML = alerts.map(a => `
                 <div class="alert-item alert-${a.type}">
                     <div style="flex:1;">
-                        <h4 style="margin-bottom:6px; color:var(--text-main); font-size:1.05rem;">${a.title}</h4>
-                        <p style="color:var(--text-muted); font-size:0.95rem; line-height:1.4;">${a.text}</p>
+                        <h4 style="margin-bottom:6px;">${a.title}</h4>
+                        <p>${a.text}</p>
                     </div>
-                    <div style="display:flex; align-items:flex-start;">
-                        ${a.actionHtml || ''}
-                        ${a.waMsg ? `<button class="btn btn-whatsapp" style="border-radius:10px; padding:10px; flex-shrink:0;" onclick="sendWA('${a.phone || ''}', decodeURIComponent('${encodeURIComponent(a.waMsg)}'))" title="Enviar WhatsApp"><i data-lucide="message-circle" style="width:20px;"></i></button>` : ''}
-                    </div>
+                    ${a.waMsg ? `<button class="btn btn-whatsapp" onclick="sendWA('${a.phone || ''}', '${a.waMsg}')"><i data-lucide="message-circle"></i></button>` : ''}
                 </div>
             `).join('');
 
             document.getElementById('stat-tenants').innerText = state.tenants.length;
-            
-            // Recaudado Mes suma TODOS los pagos (Arriendo, Depósitos, Otros)
             const mesColl = state.payments.filter(p => p.month === currMonthStr).reduce((s,p)=> s+parseFloat(p.amount),0);
             document.getElementById('stat-monthly').innerText = `$${mesColl.toLocaleString()}`;
-            
             document.getElementById('stat-debt').innerText = `$${totalMoraInquilinos.toLocaleString()}`;
 
             const recentTbody = document.getElementById('recent-payments-tbody');
             recentTbody.innerHTML = state.payments.sort((a,b)=> new Date(b.createdAt) - new Date(a.createdAt)).slice(0,5).map(p => {
                 const t = state.tenants.find(x => x.id === p.tenantId);
-                return `<tr>
-                    <td data-label="Fecha"><strong>${new Date(p.createdAt).toLocaleDateString()}</strong></td>
-                    <td data-label="Inquilino">${t?.name || '-'}</td>
-                    <td data-label="Concepto">${p.concept || 'Arriendo Mensual'}</td>
-                    <td data-label="Monto">$${parseFloat(p.amount).toLocaleString()}</td>
-                    <td data-label="Acciones"><button class="btn btn-ghost" onclick="viewReceipt('${p.id}')"><i data-lucide="image"></i></button></td>
-                </tr>`;
+                return `<tr><td>${new Date(p.createdAt).toLocaleDateString()}</td><td>${t?.name || '-'}</td><td>$${parseFloat(p.amount).toLocaleString()}</td><td><button class="btn btn-ghost" onclick="viewReceipt('${p.id}')"><i data-lucide="image"></i></button></td></tr>`;
             }).join('');
         }
 
@@ -1107,16 +1046,10 @@
             const body = document.getElementById('tenants-tbody');
             body.innerHTML = state.tenants.map(t => `
                 <tr>
-                    <td data-label="Nombre"><strong>${t.name}</strong></td>
-                    <td data-label="WhatsApp">${t.phone || '-'}</td>
-                    <td data-label="Canon">$${parseFloat(t.rent).toLocaleString()}</td>
-                    <td data-label="Vencimiento">${t.end ? new Date(t.end).toLocaleDateString() : 'No def.'}</td>
-                    <td data-label="Acciones">
-                        <div style="display:flex; gap:8px;">
-                            <button class="btn btn-ghost" onclick="openTenantModal('${t.id}')"><i data-lucide="edit-3" style="width:18px;"></i></button>
-                            <button class="btn btn-ghost" style="color:var(--danger); background:#fee2e2; border-color:#fee2e2;" onclick="askDeleteTenant('${t.id}')"><i data-lucide="trash-2" style="width:18px;"></i></button>
-                        </div>
-                    </td>
+                    <td><strong>${t.name}</strong></td>
+                    <td>${t.phone || '-'}</td>
+                    <td>$${parseFloat(t.rent).toLocaleString()}</td>
+                    <td><button class="btn btn-ghost" onclick="openTenantModal('${t.id}')"><i data-lucide="edit-3"></i></button></td>
                 </tr>
             `).join('');
         }
@@ -1125,94 +1058,30 @@
             const body = document.getElementById('payments-tbody');
             body.innerHTML = state.payments.sort((a,b)=> new Date(b.createdAt) - new Date(a.createdAt)).map(p => {
                 const t = state.tenants.find(x => x.id === p.tenantId);
-                return `<tr>
-                    <td data-label="Fecha"><strong>${new Date(p.createdAt).toLocaleDateString()}</strong></td>
-                    <td data-label="Inquilino">${t?.name || '-'}</td>
-                    <td data-label="Concepto">${p.concept || 'Arriendo Mensual'}</td>
-                    <td data-label="Monto">$${parseFloat(p.amount).toLocaleString()}</td>
-                    <td data-label="Mes Aplicado"><span class="badge badge-success" style="background:var(--background); color:var(--text-main);">${p.month}</span></td>
-                    <td data-label="Acciones">
-                        <div style="display:flex; gap:8px;">
-                            <button class="btn btn-ghost" onclick="viewReceipt('${p.id}')"><i data-lucide="eye" style="width:18px;"></i></button>
-                            <button class="btn btn-ghost" style="color:var(--danger); background:#fee2e2; border-color:#fee2e2;" onclick="askDeletePayment('${p.id}')"><i data-lucide="trash-2" style="width:18px;"></i></button>
-                        </div>
-                    </td>
-                </tr>`;
+                return `<tr><td>${new Date(p.createdAt).toLocaleDateString()}</td><td>${t?.name || '-'}</td><td>$${parseFloat(p.amount).toLocaleString()}</td><td>${p.month}</td><td><button class="btn btn-ghost" onclick="askDeletePayment('${p.id}')"><i data-lucide="trash-2"></i></button></td></tr>`;
             }).join('');
         }
 
         function renderAdminFees() {
             const body = document.getElementById('adminfees-tbody');
             body.innerHTML = [...state.adminfees].sort((a,b)=> b.month.localeCompare(a.month)).map(af => `
-                <tr>
-                    <td data-label="Registro"><strong>${af.date}</strong></td>
-                    <td data-label="Mes/Año">${af.month}</td>
-                    <td data-label="Valor">$${parseFloat(af.amount).toLocaleString()}</td>
-                    <td data-label="Estado"><span class="badge ${af.status === 'Pagado' ? 'badge-success' : 'badge-danger'}">${af.status}</span></td>
-                    <td data-label="Acciones">
-                        <div style="display:flex; gap:8px;">
-                            <button class="btn btn-ghost" onclick="openAdminModal('${af.id}')"><i data-lucide="edit-3" style="width:18px;"></i></button>
-                            <button class="btn btn-ghost" style="color:var(--danger); background:#fee2e2; border-color:#fee2e2;" onclick="deleteAdmin('${af.id}')"><i data-lucide="trash-2" style="width:18px;"></i></button>
-                        </div>
-                    </td>
-                </tr>
+                <tr><td>${af.month}</td><td>$${parseFloat(af.amount).toLocaleString()}</td><td><span class="badge ${af.status === 'Pagado' ? 'badge-success' : 'badge-danger'}">${af.status}</span></td><td><button class="btn btn-ghost" onclick="openAdminModal('${af.id}')"><i data-lucide="edit-3"></i></button></td></tr>
             `).join('');
         }
 
         function renderServices() {
             document.getElementById('utility-accounts-tbody').innerHTML = state.utilityAccounts.map(u => `
-                <tr>
-                    <td data-label="Servicio"><strong>${u.type}</strong></td>
-                    <td data-label="NIC">${u.contract}</td>
-                    <td data-label="Vencimiento">${u.dueDate}</td>
-                    <td data-label="Acciones">
-                        <div style="display:flex; gap:8px;">
-                            <button class="btn btn-ghost" onclick="openUtilityModal('${u.id}')"><i data-lucide="edit-3" style="width:18px;"></i></button>
-                            <button class="btn btn-ghost" style="color:var(--danger); background:#fee2e2; border-color:#fee2e2;" onclick="askDeleteUtility('${u.id}')"><i data-lucide="trash-2" style="width:18px;"></i></button>
-                        </div>
-                    </td>
-                </tr>
+                <tr><td><strong>${u.type}</strong></td><td>${u.contract}</td><td><button class="btn btn-ghost" onclick="openUtilityModal('${u.id}')"><i data-lucide="edit-3"></i></button></td></tr>
             `).join('');
-
-            document.getElementById('services-readings-tbody').innerHTML = state.services.map(s => {
-                const t = state.tenants.find(x => x.id === s.tenantId);
-                return `<tr>
-                    <td data-label="Fecha"><strong>${s.date}</strong></td>
-                    <td data-label="Servicio">${s.type}</td>
-                    <td data-label="Inquilino">${t?.name || '-'}</td>
-                    <td data-label="Lectura">${s.meterReading}</td>
-                    <td data-label="Acciones"><button class="btn btn-ghost" style="color:var(--danger); background:#fee2e2; border-color:#fee2e2;" onclick="askDeleteReading('${s.id}')"><i data-lucide="trash-2" style="width:18px;"></i></button></td>
-                </tr>`;
-            }).join('');
-
-            document.getElementById('services-payments-tbody').innerHTML = state.servicePayments.map(sp => {
-                const t = state.tenants.find(x => x.id === sp.tenantId);
-                return `<tr>
-                    <td data-label="Fecha"><strong>${sp.date}</strong></td>
-                    <td data-label="Servicio">${sp.type}</td>
-                    <td data-label="Inquilino">${t?.name || '-'}</td>
-                    <td data-label="Monto">$${parseFloat(sp.amount).toLocaleString()}</td>
-                    <td data-label="Mes/Año">${sp.month}</td>
-                    <td data-label="Acciones"><button class="btn btn-ghost" style="color:var(--danger); background:#fee2e2; border-color:#fee2e2;" onclick="askDeleteServicePayment('${sp.id}')"><i data-lucide="trash-2" style="width:18px;"></i></button></td>
-                </tr>`;
-            }).join('');
         }
 
-        // --- 5. LÓGICA DE FORMULARIOS LOCALES ---
+        // --- 5. LÓGICA DE FORMULARIOS CON NUBE ---
         async function handleTenantSubmit(e) {
             e.preventDefault();
             const id = document.getElementById('t-id-hidden').value;
-            const data = { 
-                id: id || Date.now().toString(), 
-                name: document.getElementById('t-name').value, 
-                phone: document.getElementById('t-phone').value, 
-                payday: document.getElementById('t-payday').value, 
-                rent: document.getElementById('t-rent').value, 
-                start: document.getElementById('t-start').value,
-                end: document.getElementById('t-end').value 
-            };
+            const data = { id: id || Date.now().toString(), name: document.getElementById('t-name').value, phone: document.getElementById('t-phone').value, payday: document.getElementById('t-payday').value, rent: document.getElementById('t-rent').value, start: document.getElementById('t-start').value, end: document.getElementById('t-end').value };
             if (id) { const idx = state.tenants.findIndex(x => x.id == id); state.tenants[idx] = data; } else state.tenants.push(data);
-            await saveData(state); closeModals(); sync();
+            await saveData(state); await syncToCloud(); closeModals(); sync();
         }
 
         async function handlePaymentSubmit(e) {
@@ -1220,16 +1089,8 @@
             const file = document.getElementById('p-file').files[0];
             let receipt = '';
             if (file) receipt = await new Promise(r => { const fr = new FileReader(); fr.onload = ev => r(ev.target.result); fr.readAsDataURL(file); });
-            state.payments.push({ 
-                id: Date.now().toString(), 
-                tenantId: document.getElementById('p-tenant').value, 
-                concept: document.getElementById('p-concept').value,
-                amount: document.getElementById('p-amount').value, 
-                month: document.getElementById('p-month').value, 
-                receipt: receipt, 
-                createdAt: new Date().toISOString() 
-            });
-            await saveData(state); closeModals(); sync();
+            state.payments.push({ id: Date.now().toString(), tenantId: document.getElementById('p-tenant').value, concept: document.getElementById('p-concept').value, amount: document.getElementById('p-amount').value, month: document.getElementById('p-month').value, receipt: receipt, createdAt: new Date().toISOString() });
+            await saveData(state); await syncToCloud(); closeModals(); sync();
         }
 
         async function handleAdminSubmit(e) {
@@ -1239,23 +1100,22 @@
                 const idx = state.adminfees.findIndex(af => af.id == id);
                 state.adminfees[idx].amount = document.getElementById('a-amount').value;
                 state.adminfees[idx].status = document.getElementById('a-status').value;
-                state.adminfees[idx].date = new Date().toLocaleDateString();
             } else {
                 state.adminfees.push({ id: Date.now().toString(), month: document.getElementById('a-month').value, amount: document.getElementById('a-amount').value, status: document.getElementById('a-status').value, date: new Date().toLocaleDateString(), createdAt: new Date().toISOString() });
             }
-            await saveData(state); closeModals(); sync();
+            await saveData(state); await syncToCloud(); closeModals(); sync();
         }
 
         async function handleServicePaymentSubmit(e) {
             e.preventDefault();
             state.servicePayments.push({ id: Date.now().toString(), tenantId: document.getElementById('sp-tenant').value, type: document.getElementById('sp-type').value, amount: document.getElementById('sp-amount').value, month: document.getElementById('sp-month').value, date: new Date().toLocaleDateString() });
-            await saveData(state); closeModals(); sync();
+            await saveData(state); await syncToCloud(); closeModals(); sync();
         }
 
         async function handleReadingSubmit(e) {
             e.preventDefault();
             state.services.push({ id: Date.now().toString(), tenantId: document.getElementById('r-tenant').value, type: document.getElementById('r-type').value, meterReading: document.getElementById('r-meter').value, date: new Date().toLocaleDateString() });
-            await saveData(state); closeModals(); sync();
+            await saveData(state); await syncToCloud(); closeModals(); sync();          
         }
 
         async function handleUtilitySubmit(e) {
@@ -1269,7 +1129,7 @@
             } else {
                 state.utilityAccounts.push({ id: Date.now().toString(), type: document.getElementById('u-type').value, contract: document.getElementById('u-contract').value, dueDate: document.getElementById('u-due-date').value });
             }
-            await saveData(state); closeModals(); sync();
+            await saveData(state); await syncToCloud(); closeModals(); sync();
         }
 
         // --- 6. APERTURA DE MODALES ---
@@ -1333,7 +1193,7 @@
             document.getElementById('viewer-modal').style.display = 'flex';
         }
 
-        // --- 7. SISTEMA DE BORRADO SEGURO MÓVIL ---
+        // --- 7. SISTEMA DE BORRADO ---
         let deleteAction = null;
         function showConfirm(text, action) { 
             document.getElementById('confirm-text').innerText = text; 
@@ -1342,22 +1202,22 @@
         }
         document.getElementById('confirm-yes').onclick = async () => { if (deleteAction) await deleteAction(); deleteAction = null; closeConfirm(); };
 
-        function askDeleteTenant(id) { showConfirm('¿Eliminar inquilino y su historial?', async () => { state.tenants = state.tenants.filter(t => t.id !== id); await saveData(state); sync(); }); }
-        function askDeletePayment(id) { showConfirm('¿Borrar pago?', async () => { state.payments = state.payments.filter(p => p.id !== id); await saveData(state); sync(); }); }
-        function askDeleteReading(id) { showConfirm('¿Borrar lectura?', async () => { state.services = state.services.filter(s => s.id !== id); await saveData(state); sync(); }); }
-        function askDeleteServicePayment(id) { showConfirm('¿Borrar pago?', async () => { state.servicePayments = state.servicePayments.filter(sp => sp.id !== id); await saveData(state); sync(); }); }
-        function askDeleteUtility(id) { showConfirm('¿Eliminar esta cuenta?', async () => { state.utilityAccounts = state.utilityAccounts.filter(u => u.id !== id); await saveData(state); sync(); }); }
-        function deleteAdmin(id) { showConfirm('¿Borrar registro?', async () => { state.adminfees = state.adminfees.filter(a => a.id !== id); await saveData(state); sync(); }); }
+        function askDeleteTenant(id) { showConfirm('¿Eliminar inquilino?', async () => { state.tenants = state.tenants.filter(t => t.id !== id); await saveData(state); await syncToCloud(); sync(); }); }
+        function askDeletePayment(id) { showConfirm('¿Borrar pago?', async () => { state.payments = state.payments.filter(p => p.id !== id); await saveData(state); await syncToCloud(); sync(); }); }
+        function askDeleteReading(id) { showConfirm('¿Borrar lectura?', async () => { state.services = state.services.filter(s => s.id !== id); await saveData(state); await syncToCloud(); sync(); }); }
+        function askDeleteServicePayment(id) { showConfirm('¿Borrar pago?', async () => { state.servicePayments = state.servicePayments.filter(sp => sp.id !== id); await saveData(state); await syncToCloud(); sync(); }); }
+        function askDeleteUtility(id) { showConfirm('¿Eliminar cuenta?', async () => { state.utilityAccounts = state.utilityAccounts.filter(u => u.id !== id); await saveData(state); await syncToCloud(); sync(); }); }
 
-        // Si no hay teléfono, abre la API universal para elegir a quién enviar en WA
         function sendWA(phone, msg) { 
             const url = phone ? `https://wa.me/${phone.replace(/\D/g,'')}` : 'https://wa.me/';
             window.open(`${url}?text=${encodeURIComponent(msg)}`, '_blank'); 
         }
 
+        // --- INICIO DE APLICACIÓN ---
         window.onload = async () => {
             try {
                 await initDB();
+                await loadFromCloud(); // Descarga lo último de la nube al iniciar
                 if (sessionStorage.getItem('authed')) {
                     document.getElementById('auth-overlay').style.display = 'none';
                     await sync();
@@ -1366,6 +1226,57 @@
                 console.error("Fallo carga inicial", e);
             }
         };
+        // --- CONFIGURACIÓN DE NUBE GRATUITA ---
+const GIST_ID = 'd2c6ca2ad6ad9b41a96bfc58e8d9a637';
+const GITHUB_TOKEN = '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';
+
+// Esta función sube tus cambios a la nube automáticamente
+// Función para SUBIR cambios a GitHub (Ajustada para tu App)
+async function syncToCloud() {
+    try {
+        const response = await fetch(`https://api.github.com/gists/${GIST_ID}`, {
+            method: 'PATCH',
+            headers: {
+                'Authorization': `token ${GITHUB_TOKEN}`,
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                files: {
+                    "propify_backup_local_2026-02-22 (2).json": {
+                        content: JSON.stringify(state, null, 2) // Usamos 'state' que es tu base de datos real
+                    }
+                }
+            })
+        });
+        if (response.ok) {
+            console.log("¡Sincronizado con la nube!");
+        }
+    } catch (error) {
+        console.error("Error sincronizando:", error);
+    }
+}
+
+// Función para DESCARGAR cambios de GitHub (Ajustada para tu App)
+async function loadFromCloud() {
+    try {
+        const response = await fetch(`https://api.github.com/gists/${GIST_ID}`);
+        if (!response.ok) return;
+
+        const gist = await response.json();
+        const fileName = "propify_backup_local_2026-02-22 (2).json";
+        
+        if (gist.files && gist.files[fileName]) {
+            const content = JSON.parse(gist.files[fileName].content);
+            if (Object.keys(content).length > 0) {
+                state = content; // Actualizamos el estado interno
+                await saveData(state); // Guardamos en la base de datos del navegador
+                console.log("¡Datos actualizados desde la nube!");
+            }
+        }
+    } catch (error) {
+        console.error("Error al cargar desde la nube:", error);
+    }
+}
     </script>
 </body>
 </html>
