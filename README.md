@@ -4,6 +4,21 @@ App estática (HTML + JS) para gestión de arriendo con un propietario y un inqu
 
 ---
 
+## ¿Qué hacer ahora? — Guía Rápida
+
+Sigue estos pasos en orden. Cada uno se detalla en las secciones siguientes.
+
+- [ ] **Paso 1 — Crea tu proyecto Supabase** en [supabase.com](https://supabase.com) y anota la URL y la `anon key`.
+- [ ] **Paso 2 — Crea las tablas** ejecutando `supabase_schema.sql` en el SQL Editor de Supabase.
+- [ ] **Paso 3 — Crea el bucket de Storage** llamado `supports` (tipo público) desde *Storage → New bucket*.
+- [ ] **Paso 4 — Configura Auth** en *Authentication → URL Configuration*: agrega la URL de tu sitio Netlify como Site URL y Redirect URL.
+- [ ] **Paso 5 — Pon tus credenciales en el HTML**: abre `propify_app.html` y reemplaza `YOUR_SUPABASE_URL` y `YOUR_SUPABASE_ANON_KEY` con los valores reales. *(O usa el `netlify.toml` + variables de entorno — ver Paso 7.)*
+- [ ] **Paso 6 — Despliega en Netlify**: conecta este repositorio desde *Netlify → Add new site → Import an existing project → GitHub*. Build command: vacío. Publish directory: `.`
+- [ ] **Paso 7 — Asigna roles**: una vez que cada usuario haga su primer login con magic link, ve a *Authentication → Users* en Supabase, copia sus UUIDs y ejecúta el INSERT de la sección [Usuarios / Roles](#usuarios--roles).
+- [ ] **¡Listo!** Entra a `https://tu-sitio.netlify.app/propify_app.html`, ingresa tu email y recibirás el link mágico.
+
+---
+
 ## Tabla de Contenidos
 
 1. [Setup Supabase](#1-setup-supabase)
@@ -120,7 +135,7 @@ Crea el archivo `netlify.toml` en la raíz:
 
 ```toml
 [build]
-  command = "sed -i 's|YOUR_SUPABASE_URL|'\"$SUPABASE_URL\"'|g; s|YOUR_SUPABASE_ANON_KEY|'\"$SUPABASE_ANON_KEY\"'|g' propify_app.html"
+  command = "sed -i 's|YOUR_SUPABASE_URL|'\"$SUPABASE_URL\"'|g' propify_app.html && sed -i 's|YOUR_SUPABASE_ANON_KEY|'\"$SUPABASE_ANON_KEY\"'|g' propify_app.html"
   publish = "."
 ```
 
