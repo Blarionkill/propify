@@ -5,7 +5,7 @@
 -- ============================================================
 
 -- -------------------------
--- Enable UUID extension
+-- Enable UUID extension (provides gen_random_uuid() used for primary keys)
 -- -------------------------
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 

@@ -825,6 +825,17 @@
         let currentUser = null;
         let currentRole = null; // 'owner' | 'tenant'
 
+        // HTML-escape helper to prevent XSS when injecting user data into innerHTML
+        function esc(str) {
+            if (str == null) return '';
+            return String(str)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
         // =====================================================
         // 3. AUTH FUNCTIONS
         // =====================================================
@@ -912,7 +923,7 @@
 
         async function uploadSupportToStorage(file) {
             const ext = file.name.split('.').pop().toLowerCase();
-            const path = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}.${ext}`;
+            const path = `${Date.now()}-${Math.random().toString(36).substring(2, 11)}.${ext}`;
             const { error } = await supabaseClient.storage
                 .from('supports')
                 .upload(path, file, { cacheControl: '3600', upsert: false });
@@ -1071,7 +1082,7 @@
                         : `ATENCIÓN "${t.name.toUpperCase()}": incumplimiento de pago mes "${nombreMes}" por $${debt.toLocaleString()}.`;
                     alerts.push({
                         type: 'danger',
-                        title: isFraction ? `Fracción Pendiente: ${t.name}` : `Mora de Arriendo: ${t.name}`,
+                        title: isFraction ? `Fracción Pendiente: ${esc(t.name)}` : `Mora de Arriendo: ${esc(t.name)}`,
                         text: `Valor a pagar: <strong>$${debt.toLocaleString()}</strong>`,
                         phone: t.phone, waMsg: msgWaMora
                     });
@@ -1079,9 +1090,9 @@
             });
 
             alertsDiv.innerHTML = alerts.map(a => `
-                <div class="alert-item alert-${a.type}">
+                <div class="alert-item alert-${esc(a.type)}">
                     <div style="flex:1;"><h4 style="margin-bottom:6px;">${a.title}</h4><p>${a.text}</p></div>
-                    ${a.waMsg ? `<button class="btn btn-whatsapp" data-phone="${(a.phone||'').replace(/"/g,'')}" data-msg="${a.waMsg.replace(/"/g,'&quot;')}" onclick="sendWA(this.dataset.phone,this.dataset.msg)"><i data-lucide="message-circle"></i></button>` : ''}
+                    ${a.waMsg ? `<button class="btn btn-whatsapp" data-phone="${esc(a.phone||'')}" data-msg="${esc(a.waMsg)}" onclick="sendWA(this.dataset.phone,this.dataset.msg)"><i data-lucide="message-circle"></i></button>` : ''}
                 </div>`).join('');
 
             document.getElementById('stat-tenants').innerText = state.tenants.length;
@@ -1096,10 +1107,10 @@
                     const t = state.tenants.find(x => x.id === p.tenantId);
                     return `<tr>
                         <td data-label="Fecha Registro">${new Date(p.createdAt).toLocaleDateString()}</td>
-                        <td data-label="Inquilino">${t?.name || '-'}</td>
-                        <td data-label="Concepto">${p.concept || '-'}</td>
+                        <td data-label="Inquilino">${esc(t?.name)}</td>
+                        <td data-label="Concepto">${esc(p.concept) || '-'}</td>
                         <td data-label="Monto">$${parseFloat(p.amount).toLocaleString()}</td>
-                        <td data-label="Acciones">${p.receipt ? `<button class="btn btn-ghost" onclick="viewReceipt('${p.id}')"><i data-lucide="paperclip"></i></button>` : ''}</td>
+                        <td data-label="Acciones">${p.receipt ? `<button class="btn btn-ghost" onclick="viewReceipt('${esc(p.id)}')"><i data-lucide="paperclip"></i></button>` : ''}</td>
                     </tr>`;
                 }).join('');
         }
@@ -1107,13 +1118,13 @@
         function renderTenants() {
             document.getElementById('tenants-tbody').innerHTML = state.tenants.map(t => `
                 <tr>
-                    <td data-label="Nombre"><strong>${t.name}</strong></td>
-                    <td data-label="WhatsApp">${t.phone || '-'}</td>
+                    <td data-label="Nombre"><strong>${esc(t.name)}</strong></td>
+                    <td data-label="WhatsApp">${esc(t.phone) || '-'}</td>
                     <td data-label="Canon">$${parseFloat(t.rent).toLocaleString()}</td>
-                    <td data-label="Vencimiento">${t.end || '-'}</td>
+                    <td data-label="Vencimiento">${esc(t.end) || '-'}</td>
                     <td data-label="Acciones">
-                        <button class="btn btn-ghost" onclick="openTenantModal('${t.id}')"><i data-lucide="edit-3"></i></button>
-                        <button class="btn btn-ghost" onclick="askDeleteTenant('${t.id}')"><i data-lucide="trash-2"></i></button>
+                        <button class="btn btn-ghost" onclick="openTenantModal('${esc(t.id)}')"><i data-lucide="edit-3"></i></button>
+                        <button class="btn btn-ghost" onclick="askDeleteTenant('${esc(t.id)}')"><i data-lucide="trash-2"></i></button>
                     </td>
                 </tr>`).join('');
         }
@@ -1123,13 +1134,13 @@
                 const t = state.tenants.find(x => x.id === p.tenantId);
                 return `<tr>
                     <td data-label="Fecha Registro">${new Date(p.createdAt).toLocaleDateString()}</td>
-                    <td data-label="Inquilino">${t?.name || '-'}</td>
-                    <td data-label="Concepto">${p.concept || '-'}</td>
+                    <td data-label="Inquilino">${esc(t?.name)}</td>
+                    <td data-label="Concepto">${esc(p.concept) || '-'}</td>
                     <td data-label="Monto">$${parseFloat(p.amount).toLocaleString()}</td>
-                    <td data-label="Mes Aplicado">${p.month}</td>
+                    <td data-label="Mes Aplicado">${esc(p.month)}</td>
                     <td data-label="Acciones">
-                        ${p.receipt ? `<button class="btn btn-ghost" onclick="viewReceipt('${p.id}')"><i data-lucide="paperclip"></i></button>` : ''}
-                        <button class="btn btn-ghost" onclick="askDeletePayment('${p.id}')"><i data-lucide="trash-2"></i></button>
+                        ${p.receipt ? `<button class="btn btn-ghost" onclick="viewReceipt('${esc(p.id)}')"><i data-lucide="paperclip"></i></button>` : ''}
+                        <button class="btn btn-ghost" onclick="askDeletePayment('${esc(p.id)}')"><i data-lucide="trash-2"></i></button>
                     </td>
                 </tr>`;
             }).join('');
@@ -1141,11 +1152,11 @@
                 .map(af => `
                 <tr>
                     <td data-label="Registro">${af.createdAt ? new Date(af.createdAt).toLocaleDateString() : '-'}</td>
-                    <td data-label="Mes/Año">${af.month}</td>
+                    <td data-label="Mes/Año">${esc(af.month)}</td>
                     <td data-label="Valor">$${parseFloat(af.amount).toLocaleString()}</td>
-                    <td data-label="Estado"><span class="badge ${af.status === 'Pagado' ? 'badge-success' : 'badge-danger'}">${af.status}</span></td>
+                    <td data-label="Estado"><span class="badge ${af.status === 'Pagado' ? 'badge-success' : 'badge-danger'}">${esc(af.status)}</span></td>
                     <td data-label="Acciones">
-                        ${currentRole === 'owner' ? `<button class="btn btn-ghost" onclick="openAdminModal('${af.id}')"><i data-lucide="edit-3"></i></button>` : ''}
+                        ${currentRole === 'owner' ? `<button class="btn btn-ghost" onclick="openAdminModal('${esc(af.id)}')"><i data-lucide="edit-3"></i></button>` : ''}
                     </td>
                 </tr>`).join('');
         }
@@ -1153,24 +1164,24 @@
         function renderServices() {
             document.getElementById('utility-accounts-tbody').innerHTML = state.utilityAccounts.map(u => `
                 <tr>
-                    <td data-label="Servicio"><strong>${u.type}</strong></td>
-                    <td data-label="NIC / Contrato">${u.contract}</td>
-                    <td data-label="Vencimiento">${u.dueDate || '-'}</td>
+                    <td data-label="Servicio"><strong>${esc(u.type)}</strong></td>
+                    <td data-label="NIC / Contrato">${esc(u.contract)}</td>
+                    <td data-label="Vencimiento">${esc(u.dueDate) || '-'}</td>
                     <td data-label="Acciones">
-                        <button class="btn btn-ghost" onclick="openUtilityModal('${u.id}')"><i data-lucide="edit-3"></i></button>
-                        <button class="btn btn-ghost" onclick="askDeleteUtility('${u.id}')"><i data-lucide="trash-2"></i></button>
+                        <button class="btn btn-ghost" onclick="openUtilityModal('${esc(u.id)}')"><i data-lucide="edit-3"></i></button>
+                        <button class="btn btn-ghost" onclick="askDeleteUtility('${esc(u.id)}')"><i data-lucide="trash-2"></i></button>
                     </td>
                 </tr>`).join('');
 
             document.getElementById('services-readings-tbody').innerHTML = state.services.map(r => {
                 const t = state.tenants.find(x => x.id === r.tenantId);
                 return `<tr>
-                    <td data-label="Fecha">${r.date || '-'}</td>
-                    <td data-label="Servicio">${r.type}</td>
-                    <td data-label="Inquilino">${t?.name || '-'}</td>
-                    <td data-label="Lectura">${r.meterReading}</td>
+                    <td data-label="Fecha">${esc(r.date) || '-'}</td>
+                    <td data-label="Servicio">${esc(r.type)}</td>
+                    <td data-label="Inquilino">${esc(t?.name)}</td>
+                    <td data-label="Lectura">${esc(r.meterReading)}</td>
                     <td data-label="Acciones">
-                        <button class="btn btn-ghost" onclick="askDeleteReading('${r.id}')"><i data-lucide="trash-2"></i></button>
+                        <button class="btn btn-ghost" onclick="askDeleteReading('${esc(r.id)}')"><i data-lucide="trash-2"></i></button>
                     </td>
                 </tr>`;
             }).join('');
@@ -1178,17 +1189,17 @@
             document.getElementById('services-payments-tbody').innerHTML = state.servicePayments.map(sp => {
                 const t = state.tenants.find(x => x.id === sp.tenantId);
                 const supportBtn = sp.supportUrl
-                    ? `<button class="btn btn-ghost" onclick="viewServiceSupport('${sp.id}')"><i data-lucide="paperclip"></i></button>`
+                    ? `<button class="btn btn-ghost" onclick="viewServiceSupport('${esc(sp.id)}')"><i data-lucide="paperclip"></i></button>`
                     : '';
                 const deleteBtn = currentRole === 'owner'
-                    ? `<button class="btn btn-ghost" onclick="askDeleteServicePayment('${sp.id}')"><i data-lucide="trash-2"></i></button>`
+                    ? `<button class="btn btn-ghost" onclick="askDeleteServicePayment('${esc(sp.id)}')"><i data-lucide="trash-2"></i></button>`
                     : '';
                 return `<tr>
-                    <td data-label="Fecha">${sp.date || '-'}</td>
-                    <td data-label="Servicio">${sp.type}</td>
-                    <td data-label="Inquilino">${t?.name || '-'}</td>
+                    <td data-label="Fecha">${esc(sp.date) || '-'}</td>
+                    <td data-label="Servicio">${esc(sp.type)}</td>
+                    <td data-label="Inquilino">${esc(t?.name)}</td>
                     <td data-label="Monto">$${parseFloat(sp.amount).toLocaleString()}</td>
-                    <td data-label="Mes/Año">${sp.month}</td>
+                    <td data-label="Mes/Año">${esc(sp.month)}</td>
                     <td data-label="Acciones">${supportBtn} ${deleteBtn}</td>
                 </tr>`;
             }).join('');
