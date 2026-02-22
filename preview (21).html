@@ -914,12 +914,24 @@
             renderAll();
         }
 
-        function checkAuth() {
-            if (document.getElementById('auth-pass').value === '1234') {
+        async function checkAuth() {
+            const passInput = document.getElementById('auth-pass');
+            if (passInput.value === '1234') {
                 document.getElementById('auth-overlay').style.display = 'none';
                 sessionStorage.setItem('authed', 'true');
-                sync();
-            } else alert('Clave incorrecta');
+                
+                // Intentamos cargar de la nube al entrar, pero si falla, 
+                // mostramos lo que haya local para que no se bloquee
+                try {
+                    await loadFromCloud();
+                } catch (e) {
+                    console.warn("No se pudo cargar de la nube, usando datos locales");
+                }
+                
+                await sync(); 
+            } else {
+                alert('Clave incorrecta');
+            }
         }
 
         function logout() { sessionStorage.removeItem('authed'); location.reload(); }
@@ -1217,15 +1229,22 @@
         window.onload = async () => {
             try {
                 await initDB();
-                await loadFromCloud(); // Descarga lo último de la nube al iniciar
+                
+                // Si ya estaba autenticado anteriormente (sesión activa)
                 if (sessionStorage.getItem('authed')) {
                     document.getElementById('auth-overlay').style.display = 'none';
-                    await sync();
+                    await loadFromCloud(); // Intenta bajar cambios
+                    await sync();          // Muestra los datos
                 }
             } catch (e) {
                 console.error("Fallo carga inicial", e);
+                // Si falla la nube, al menos intentamos mostrar lo local
+                if (sessionStorage.getItem('authed')) {
+                    sync();
+                }
             }
         };
+        
         // --- CONFIGURACIÓN DE NUBE GRATUITA ---
 const GIST_ID = 'd2c6ca2ad6ad9b41a96bfc58e8d9a637';
 const GITHUB_TOKEN = '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';
