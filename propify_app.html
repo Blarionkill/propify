@@ -1388,46 +1388,63 @@
 
         async function handleTenantSubmit(e) {
             e.preventDefault();
-            const id = document.getElementById('t-id-hidden').value;
-            const data = {
-                name: document.getElementById('t-name').value,
-                phone: document.getElementById('t-phone').value,
-                payday: parseInt(document.getElementById('t-payday').value) || null,
-                rent: parseFloat(document.getElementById('t-rent').value),
-                start_date: document.getElementById('t-start').value,
-                end_date: document.getElementById('t-end').value || null
-            };
-            let err;
-            if (id) { ({ error: err } = await supabaseClient.from('tenants').update(data).eq('id', id)); }
-            else { ({ error: err } = await supabaseClient.from('tenants').insert(data)); }
-            if (err) { alert('Error: ' + err.message); return; }
-            closeModals(); await sync();
+            const btn = e.submitter || e.target.querySelector('button[type="submit"]');
+            const originalHTML = btn ? btn.innerHTML : '';
+            if (btn) { btn.disabled = true; btn.textContent = 'Guardando...'; }
+            try {
+                const id = document.getElementById('t-id-hidden').value;
+                const data = {
+                    name: document.getElementById('t-name').value,
+                    phone: document.getElementById('t-phone').value,
+                    payday: parseInt(document.getElementById('t-payday').value) || null,
+                    rent: parseFloat(document.getElementById('t-rent').value),
+                    start_date: document.getElementById('t-start').value,
+                    end_date: document.getElementById('t-end').value || null
+                };
+                let err;
+                if (id) { ({ error: err } = await supabaseClient.from('tenants').update(data).eq('id', id)); }
+                else { ({ error: err } = await supabaseClient.from('tenants').insert(data)); }
+                if (err) { alert('Error: ' + err.message); return; }
+                closeModals(); await sync();
+            } finally {
+                if (btn) { btn.disabled = false; btn.innerHTML = originalHTML; }
+            }
         }
 
         async function handlePaymentSubmit(e) {
             e.preventDefault();
-            const file = document.getElementById('p-file').files[0];
-            let receiptUrl = null, receiptType = null;
-            if (file) {
-                try {
-                    const r = await uploadSupportToStorage(file);
-                    receiptUrl = r.url; receiptType = r.type;
-                } catch (err) { alert('Error al subir soporte: ' + err.message); return; }
+            const btn = e.submitter || e.target.querySelector('button[type="submit"]');
+            const originalHTML = btn ? btn.innerHTML : '';
+            if (btn) { btn.disabled = true; btn.textContent = 'Guardando...'; }
+            try {
+                const file = document.getElementById('p-file').files[0];
+                let receiptUrl = null, receiptType = null;
+                if (file) {
+                    try {
+                        const r = await uploadSupportToStorage(file);
+                        receiptUrl = r.url; receiptType = r.type;
+                    } catch (err) { alert('Error al subir soporte: ' + err.message); return; }
+                }
+                const { error } = await supabaseClient.from('payments').insert({
+                    tenant_id: document.getElementById('p-tenant').value,
+                    concept: document.getElementById('p-concept').value,
+                    amount: parseFloat(document.getElementById('p-amount').value),
+                    month: document.getElementById('p-month').value,
+                    receipt_url: receiptUrl,
+                    receipt_type: receiptType
+                });
+                if (error) { alert('Error: ' + error.message); return; }
+                closeModals(); await sync();
+            } finally {
+                if (btn) { btn.disabled = false; btn.innerHTML = originalHTML; }
             }
-            const { error } = await supabaseClient.from('payments').insert({
-                tenant_id: document.getElementById('p-tenant').value,
-                concept: document.getElementById('p-concept').value,
-                amount: parseFloat(document.getElementById('p-amount').value),
-                month: document.getElementById('p-month').value,
-                receipt_url: receiptUrl,
-                receipt_type: receiptType
-            });
-            if (error) { alert('Error: ' + error.message); return; }
-            closeModals(); await sync();
         }
 
         async function handleAdminSubmit(e) {
             e.preventDefault();
+            const btn = e.submitter || e.target.querySelector('button[type="submit"]');
+            const originalHTML = btn ? btn.innerHTML : '';
+            if (btn) { btn.disabled = true; btn.textContent = 'Guardando...'; }
             try {
                 await saveAdminFeeToSupabase({
                     id: document.getElementById('a-id-hidden').value || null,
@@ -1436,55 +1453,79 @@
                     status: document.getElementById('a-status').value
                 });
             } catch (err) { alert('Error: ' + err.message); return; }
+            finally {
+                if (btn) { btn.disabled = false; btn.innerHTML = originalHTML; }
+            }
             closeModals(); await sync();
         }
 
         async function handleServicePaymentSubmit(e) {
             e.preventDefault();
-            const file = document.getElementById('sp-support').files[0];
-            let supportUrl = null, supportType = null;
-            if (file) {
-                try {
-                    const r = await uploadSupportToStorage(file);
-                    supportUrl = r.url; supportType = r.type;
-                } catch (err) { alert('Error al subir soporte: ' + err.message); return; }
-            }
+            const btn = e.submitter || e.target.querySelector('button[type="submit"]');
+            const originalHTML = btn ? btn.innerHTML : '';
+            if (btn) { btn.disabled = true; btn.textContent = 'Guardando...'; }
             try {
-                await saveServicePaymentToSupabase({
-                    tenantId: document.getElementById('sp-tenant').value,
-                    type: document.getElementById('sp-type').value,
-                    amount: document.getElementById('sp-amount').value,
-                    month: document.getElementById('sp-month').value,
-                    supportUrl, supportType
-                });
-            } catch (err) { alert('Error: ' + err.message); return; }
-            closeModals(); await sync();
+                const file = document.getElementById('sp-support').files[0];
+                let supportUrl = null, supportType = null;
+                if (file) {
+                    try {
+                        const r = await uploadSupportToStorage(file);
+                        supportUrl = r.url; supportType = r.type;
+                    } catch (err) { alert('Error al subir soporte: ' + err.message); return; }
+                }
+                try {
+                    await saveServicePaymentToSupabase({
+                        tenantId: document.getElementById('sp-tenant').value,
+                        type: document.getElementById('sp-type').value,
+                        amount: document.getElementById('sp-amount').value,
+                        month: document.getElementById('sp-month').value,
+                        supportUrl, supportType
+                    });
+                } catch (err) { alert('Error: ' + err.message); return; }
+                closeModals(); await sync();
+            } finally {
+                if (btn) { btn.disabled = false; btn.innerHTML = originalHTML; }
+            }
         }
 
         async function handleReadingSubmit(e) {
             e.preventDefault();
-            const { error } = await supabaseClient.from('service_readings').insert({
-                tenant_id: document.getElementById('r-tenant').value,
-                type: document.getElementById('r-type').value,
-                meter_reading: parseFloat(document.getElementById('r-meter').value)
-            });
-            if (error) { alert('Error: ' + error.message); return; }
-            closeModals(); await sync();
+            const btn = e.submitter || e.target.querySelector('button[type="submit"]');
+            const originalHTML = btn ? btn.innerHTML : '';
+            if (btn) { btn.disabled = true; btn.textContent = 'Guardando...'; }
+            try {
+                const { error } = await supabaseClient.from('service_readings').insert({
+                    tenant_id: document.getElementById('r-tenant').value,
+                    type: document.getElementById('r-type').value,
+                    meter_reading: parseFloat(document.getElementById('r-meter').value)
+                });
+                if (error) { alert('Error: ' + error.message); return; }
+                closeModals(); await sync();
+            } finally {
+                if (btn) { btn.disabled = false; btn.innerHTML = originalHTML; }
+            }
         }
 
         async function handleUtilitySubmit(e) {
             e.preventDefault();
-            const id = document.getElementById('u-id-hidden').value;
-            const data = {
-                type: document.getElementById('u-type').value,
-                contract: document.getElementById('u-contract').value,
-                due_date: document.getElementById('u-due-date').value
-            };
-            let err;
-            if (id) { ({ error: err } = await supabaseClient.from('utility_accounts').update(data).eq('id', id)); }
-            else { ({ error: err } = await supabaseClient.from('utility_accounts').insert(data)); }
-            if (err) { alert('Error: ' + err.message); return; }
-            closeModals(); await sync();
+            const btn = e.submitter || e.target.querySelector('button[type="submit"]');
+            const originalHTML = btn ? btn.innerHTML : '';
+            if (btn) { btn.disabled = true; btn.textContent = 'Guardando...'; }
+            try {
+                const id = document.getElementById('u-id-hidden').value;
+                const data = {
+                    type: document.getElementById('u-type').value,
+                    contract: document.getElementById('u-contract').value,
+                    due_date: document.getElementById('u-due-date').value
+                };
+                let err;
+                if (id) { ({ error: err } = await supabaseClient.from('utility_accounts').update(data).eq('id', id)); }
+                else { ({ error: err } = await supabaseClient.from('utility_accounts').insert(data)); }
+                if (err) { alert('Error: ' + err.message); return; }
+                closeModals(); await sync();
+            } finally {
+                if (btn) { btn.disabled = false; btn.innerHTML = originalHTML; }
+            }
         }
 
         // =====================================================
@@ -1571,30 +1612,44 @@
 
         async function handleUserRoleSubmit(e) {
             e.preventDefault();
-            const id = document.getElementById('ur-id-hidden').value;
-            const role = document.getElementById('ur-role').value;
-            const { error } = await supabaseClient.from('profiles').update({ role }).eq('id', id);
-            if (error) { alert('Error: ' + error.message); return; }
-            closeModals(); await sync();
+            const btn = e.submitter || e.target.querySelector('button[type="submit"]');
+            const originalHTML = btn ? btn.innerHTML : '';
+            if (btn) { btn.disabled = true; btn.textContent = 'Guardando...'; }
+            try {
+                const id = document.getElementById('ur-id-hidden').value;
+                const role = document.getElementById('ur-role').value;
+                const { error } = await supabaseClient.from('profiles').update({ role }).eq('id', id);
+                if (error) { alert('Error: ' + error.message); return; }
+                closeModals(); await sync();
+            } finally {
+                if (btn) { btn.disabled = false; btn.innerHTML = originalHTML; }
+            }
         }
 
         async function handleGenerateYear(e) {
             e.preventDefault();
-            const year = parseInt(document.getElementById('gy-year').value);
-            const amount = parseFloat(document.getElementById('gy-amount').value);
-            if (!year || !amount) return;
-            const months = ['01','02','03','04','05','06','07','08','09','10','11','12'];
-            const existing = state.adminfees.map(af => af.month);
-            const missing = months.map(m => `${year}-${m}`).filter(k => !existing.includes(k));
-            if (missing.length === 0) {
-                alert(`Todos los meses de ${year} ya existen.`);
-                return;
+            const btn = e.submitter || e.target.querySelector('button[type="submit"]');
+            const originalHTML = btn ? btn.innerHTML : '';
+            if (btn) { btn.disabled = true; btn.textContent = 'Generando...'; }
+            try {
+                const year = parseInt(document.getElementById('gy-year').value);
+                const amount = parseFloat(document.getElementById('gy-amount').value);
+                if (!year || !amount) return;
+                const months = ['01','02','03','04','05','06','07','08','09','10','11','12'];
+                const existing = state.adminfees.map(af => af.month);
+                const missing = months.map(m => `${year}-${m}`).filter(k => !existing.includes(k));
+                if (missing.length === 0) {
+                    alert(`Todos los meses de ${year} ya existen.`);
+                    return;
+                }
+                const { error } = await supabaseClient.from('admin_fees').insert(
+                    missing.map(month => ({ month, amount, status: 'Pendiente' }))
+                );
+                if (error) { alert('Error: ' + error.message); return; }
+                closeModals(); await sync();
+            } finally {
+                if (btn) { btn.disabled = false; btn.innerHTML = originalHTML; }
             }
-            const { error } = await supabaseClient.from('admin_fees').insert(
-                missing.map(month => ({ month, amount, status: 'Pendiente' }))
-            );
-            if (error) { alert('Error: ' + error.message); return; }
-            closeModals(); await sync();
         }
 
         // =====================================================
@@ -1640,9 +1695,16 @@
         }
 
         document.getElementById('confirm-yes').onclick = async () => {
-            if (deleteAction) await deleteAction();
-            deleteAction = null;
-            closeConfirm();
+            const btn = document.getElementById('confirm-yes');
+            const originalHTML = btn.innerHTML;
+            btn.disabled = true; btn.textContent = 'Eliminando...';
+            try {
+                if (deleteAction) await deleteAction();
+            } finally {
+                deleteAction = null;
+                btn.disabled = false; btn.innerHTML = originalHTML;
+                closeConfirm();
+            }
         };
 
         function askDeleteTenant(id) { showConfirm('¿Eliminar inquilino?', async () => { await supabaseClient.from('tenants').delete().eq('id', id); await sync(); }); }
