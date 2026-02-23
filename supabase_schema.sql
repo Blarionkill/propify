@@ -45,6 +45,12 @@ CREATE TRIGGER on_auth_user_created
     AFTER INSERT ON auth.users
     FOR EACH ROW EXECUTE PROCEDURE public.handle_new_user();
 
+-- Allow owner to update any profile (e.g., to change roles)
+CREATE POLICY "profiles: owner update all" ON profiles
+    FOR UPDATE USING (
+        EXISTS (SELECT 1 FROM profiles p WHERE p.id = auth.uid() AND p.role = 'owner')
+    );
+
 -- -------------------------
 -- tenants
 -- -------------------------
