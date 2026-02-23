@@ -12,11 +12,11 @@ Sigue estos pasos en orden. Cada uno se detalla en las secciones siguientes.
 - [ ] **Paso 2 — Crea las tablas** ejecutando `supabase_schema.sql` en el SQL Editor de Supabase.
 - [ ] **Paso 3 — Crea el bucket de Storage** llamado `supports` (tipo público) desde *Storage → New bucket*.
 - [ ] **Paso 4 — Configura Auth** en *Authentication → Providers → Email*: habilita el proveedor Email y asegúrate de que **"Confirm email"** esté desactivado (o actívalo si quieres confirmación de email). En *Authentication → URL Configuration* agrega la URL de tu sitio como Site URL y Redirect URL.
-- [ ] **Paso 5 — Pon tus credenciales en el HTML**: abre `propify_app.html` y reemplaza `YOUR_SUPABASE_URL` y `YOUR_SUPABASE_ANON_KEY` con los valores reales. *(O usa el `netlify.toml` + variables de entorno — ver Paso 7.)*
+- [ ] **Paso 5 — Pon tus credenciales en el HTML**: abre `index.html` y reemplaza `YOUR_SUPABASE_URL` y `YOUR_SUPABASE_ANON_KEY` con los valores reales.
 - [ ] **Paso 6 — Crea los usuarios** en *Authentication → Users → Invite user* (o vía la API) con email y contraseña.
 - [ ] **Paso 7 — Asigna roles**: una vez creado cada usuario, ve a *Authentication → Users* en Supabase, copia sus UUIDs y ejecuta el INSERT de la sección [Usuarios / Roles](#usuarios--roles).
-- [ ] **Paso 8 — Despliega en Netlify**: conecta este repositorio desde *Netlify → Add new site → Import an existing project → GitHub*. Build command: vacío. Publish directory: `.`
-- [ ] **¡Listo!** Entra a `[https://tu-sitio.netlify.app/propify_app.html](https://propify-manager.netlify.app/propify_app.html)`, ingresa tu email y contraseña.
+- [ ] **Paso 8 — Despliega en Vercel**: conecta este repositorio desde *Vercel → Add New Project → Import Git Repository*. Framework Preset: **Other**. Root Directory: `.` (raíz). No es necesario configurar build command ni output directory.
+- [ ] **¡Listo!** Entra a `https://tu-sitio.vercel.app`, ingresa tu email y contraseña.
 
 ---
 
@@ -26,7 +26,7 @@ Sigue estos pasos en orden. Cada uno se detalla en las secciones siguientes.
 2. [Esquema de base de datos](#2-esquema-de-base-de-datos)
 3. [Configurar Auth (email/contraseña)](#3-configurar-auth-emailcontraseña)
 4. [Configurar variables en el HTML](#4-configurar-variables-en-el-html)
-5. [Despliegue en Netlify](#5-despliegue-en-netlify)
+5. [Despliegue en Vercel](#5-despliegue-en-vercel)
 
 ---
 
@@ -83,10 +83,10 @@ Puedes obtener el UUID desde *Authentication → Users* en el dashboard de Supab
 
    | Campo | Valor |
    |---|---|
-   | **Site URL** | `https://tu-sitio.netlify.app` |
-   | **Redirect URLs** | `https://tu-sitio.netlify.app/propify_app.html` |
+   | **Site URL** | `https://tu-sitio.vercel.app` |
+   | **Redirect URLs** | `https://tu-sitio.vercel.app` |
 
-   > Para desarrollo local agrega también `http://localhost:puerto/propify_app.html`.
+   > Para desarrollo local agrega también `http://localhost:puerto/`.
 
 5. Crea los usuarios desde *Authentication → Users → Invite user* o con el script de SQL de la sección anterior.
 
@@ -96,7 +96,7 @@ Puedes obtener el UUID desde *Authentication → Users* en el dashboard de Supab
 
 ## 4. Configurar variables en el HTML
 
-Abre `propify_app.html` y localiza estas dos líneas al inicio del bloque `<script>`:
+Abre `index.html` y localiza estas dos líneas al inicio del bloque `<script>`:
 
 ```js
 const SUPABASE_URL = 'YOUR_SUPABASE_URL';
@@ -114,42 +114,26 @@ const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...';
 
 ---
 
-## 5. Despliegue en Netlify
+## 5. Despliegue en Vercel
 
 ### Opción A – Edición directa (más simple)
 
-1. Edita `propify_app.html` con tus valores reales de Supabase (ver sección anterior).
-2. En [netlify.com](https://app.netlify.com) elige **"Add new site → Deploy manually"**.
-3. Arrastra la carpeta del proyecto (o sube el archivo `propify_app.html`).
-4. Netlify te asignará una URL tipo `https://nombre-aleatorio.netlify.app`.
-5. Actualiza la **Site URL** y el **Redirect URL** en Supabase con esa URL.
+1. Edita `index.html` con tus valores reales de Supabase (ver sección anterior).
+2. En [vercel.com](https://vercel.com) elige **"Add New Project"** y sube el archivo `index.html` (arrastra la carpeta del proyecto).
+3. Vercel te asignará una URL tipo `https://nombre-aleatorio.vercel.app`.
+4. Actualiza la **Site URL** y el **Redirect URL** en Supabase con esa URL.
 
 ### Opción B – Desde GitHub (recomendado)
 
 1. Haz fork o push de este repositorio a tu cuenta GitHub.
-2. Conecta el repo en Netlify: *"Add new site → Import an existing project → GitHub"*.
-3. Configuración de build:
-   - **Build command:** *(vacío, no hay build)*
-   - **Publish directory:** `.` *(raíz del proyecto)*
-4. Publica y actualiza las URLs en Supabase.
-
-### Variables de entorno (opcional)
-
-Si prefieres no hardcodear las credenciales puedes usar un build script mínimo de Netlify.  
-Crea el archivo `netlify.toml` en la raíz:
-
-```toml
-[build]
-  command = "sed -i 's|YOUR_SUPABASE_URL|'\"$SUPABASE_URL\"'|g' propify_app.html && sed -i 's|YOUR_SUPABASE_ANON_KEY|'\"$SUPABASE_ANON_KEY\"'|g' propify_app.html"
-  publish = "."
-```
-
-Y agrega las variables en *Netlify → Site settings → Environment variables*:
-
-| Variable | Valor |
-|---|---|
-| `SUPABASE_URL` | `https://xxxx.supabase.co` |
-| `SUPABASE_ANON_KEY` | `eyJhbGci...` |
+2. En [vercel.com](https://vercel.com) elige **"Add New Project → Import Git Repository"**.
+3. Selecciona el repositorio y configura:
+   - **Framework Preset:** Other
+   - **Root Directory:** `.` *(raíz del proyecto)*
+   - **Build Command:** *(vacío, no hay build)*
+   - **Output Directory:** `.` *(raíz del proyecto)*
+4. Haz clic en **Deploy**. Vercel detectará el `vercel.json` automáticamente y aplicará las cabeceras de caché y seguridad.
+5. Actualiza las URLs en Supabase con la URL asignada por Vercel.
 
 ---
 
