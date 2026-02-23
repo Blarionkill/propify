@@ -512,10 +512,10 @@
         </div>
         <nav class="nav-links">
             <a class="nav-item active" onclick="navigate('dashboard')"><i data-lucide="layout-grid"></i> <span>Dashboard</span></a>
-            <a class="nav-item owner-only" onclick="navigate('tenants')"><i data-lucide="users"></i> <span>Inquilinos</span></a>
-            <a class="nav-item owner-only" onclick="navigate('payments')"><i data-lucide="wallet"></i> <span>Recaudos</span></a>
+            <a class="nav-item" onclick="navigate('tenants')"><i data-lucide="users"></i> <span>Inquilinos</span></a>
+            <a class="nav-item" onclick="navigate('payments')"><i data-lucide="wallet"></i> <span>Recaudos</span></a>
             <a class="nav-item" onclick="navigate('services')"><i data-lucide="zap"></i> <span>Servicios</span></a>
-            <a class="nav-item" onclick="navigate('adminfees')"><i data-lucide="building"></i> <span>Admin</span></a>
+            <a class="nav-item owner-only" onclick="navigate('adminfees')"><i data-lucide="building"></i> <span>Admin</span></a>
             <a class="nav-item owner-only" onclick="navigate('users')"><i data-lucide="shield"></i> <span>Usuarios</span></a>
         </nav>
         <div style="padding: 1.5rem; border-top: 1px solid var(--border);">
@@ -568,7 +568,7 @@
         <section id="view-tenants" class="hidden">
             <div class="page-header">
                 <h1>Directorio de Inquilinos</h1>
-                <button class="btn btn-primary" onclick="openTenantModal()"><i data-lucide="plus"></i> Nuevo Inquilino</button>
+                <button class="btn btn-primary owner-only" onclick="openTenantModal()"><i data-lucide="plus"></i> Nuevo Inquilino</button>
             </div>
             <div class="card">
                 <div class="table-container">
@@ -584,7 +584,7 @@
         <section id="view-payments" class="hidden">
             <div class="page-header">
                 <h1>Pagos Recibidos</h1>
-                <button class="btn btn-success" onclick="openPaymentModal()"><i data-lucide="plus"></i> Registrar Abono</button>
+                <button class="btn btn-success owner-only" onclick="openPaymentModal()"><i data-lucide="plus"></i> Registrar Abono</button>
             </div>
             <div class="card">
                 <div class="table-container">
@@ -763,6 +763,7 @@
         <div class="modal">
             <h2>Cobrar Servicio</h2>
             <form id="service-payment-form" onsubmit="handleServicePaymentSubmit(event)">
+                <input type="hidden" id="sp-id-hidden">
                 <div class="form-group"><label>Inquilino</label><select id="sp-tenant" class="form-control" required></select></div>
                 <div class="form-group"><label>Servicio Facturado</label><select id="sp-type" class="form-control"><option>Luz</option><option>Agua</option><option>Gas</option></select></div>
                 <div class="form-group"><label>Monto a Cobrar ($)</label><input type="number" id="sp-amount" class="form-control" required></div>
@@ -1306,8 +1307,8 @@
                     <td data-label="Canon">$${parseFloat(t.rent).toLocaleString()}</td>
                     <td data-label="Vencimiento">${esc(t.end) || '-'}</td>
                     <td data-label="Acciones">
-                        <button class="btn btn-ghost" onclick="openTenantModal('${esc(t.id)}')"><i data-lucide="edit-3"></i></button>
-                        <button class="btn btn-ghost" onclick="askDeleteTenant('${esc(t.id)}')"><i data-lucide="trash-2"></i></button>
+                        ${currentRole === 'owner' ? `<button class="btn btn-ghost" onclick="openTenantModal('${esc(t.id)}')"><i data-lucide="edit-3"></i></button>
+                        <button class="btn btn-ghost" onclick="askDeleteTenant('${esc(t.id)}')"><i data-lucide="trash-2"></i></button>` : ''}
                     </td>
                 </tr>`).join('');
         }
@@ -1323,7 +1324,7 @@
                     <td data-label="Mes Aplicado">${esc(p.month)}</td>
                     <td data-label="Acciones">
                         ${p.receipt ? `<button class="btn btn-ghost" onclick="viewReceipt('${esc(p.id)}')"><i data-lucide="paperclip"></i></button>` : ''}
-                        <button class="btn btn-ghost" onclick="askDeletePayment('${esc(p.id)}')"><i data-lucide="trash-2"></i></button>
+                        ${currentRole === 'owner' ? `<button class="btn btn-ghost" onclick="askDeletePayment('${esc(p.id)}')"><i data-lucide="trash-2"></i></button>` : ''}
                     </td>
                 </tr>`;
             }).join('');
@@ -1374,6 +1375,7 @@
                 const supportBtn = sp.supportUrl
                     ? `<button class="btn btn-ghost" onclick="viewServiceSupport('${esc(sp.id)}')"><i data-lucide="paperclip"></i></button>`
                     : '';
+                const editBtn = `<button class="btn btn-ghost" onclick="openServicePaymentModal('${esc(sp.id)}')"><i data-lucide="edit-3"></i></button>`;
                 const deleteBtn = currentRole === 'owner'
                     ? `<button class="btn btn-ghost" onclick="askDeleteServicePayment('${esc(sp.id)}')"><i data-lucide="trash-2"></i></button>`
                     : '';
@@ -1383,7 +1385,7 @@
                     <td data-label="Inquilino">${esc(t?.name)}</td>
                     <td data-label="Monto">$${parseFloat(sp.amount).toLocaleString()}</td>
                     <td data-label="Mes/Año">${esc(sp.month)}</td>
-                    <td data-label="Acciones">${supportBtn} ${deleteBtn}</td>
+                    <td data-label="Acciones">${supportBtn} ${editBtn} ${deleteBtn}</td>
                 </tr>`;
             }).join('');
         }
@@ -1483,6 +1485,7 @@
             const originalHTML = btn ? btn.innerHTML : '';
             if (btn) { btn.disabled = true; btn.textContent = 'Guardando...'; }
             try {
+                const id = document.getElementById('sp-id-hidden').value;
                 const file = document.getElementById('sp-support').files[0];
                 let supportUrl = null, supportType = null;
                 if (file) {
@@ -1492,13 +1495,29 @@
                     } catch (err) { alert('Error al subir soporte: ' + err.message); return; }
                 }
                 try {
-                    await saveServicePaymentToSupabase({
-                        tenantId: document.getElementById('sp-tenant').value,
-                        type: document.getElementById('sp-type').value,
-                        amount: document.getElementById('sp-amount').value,
-                        month: document.getElementById('sp-month').value,
-                        supportUrl, supportType
-                    });
+                    if (id) {
+                        // UPDATE existing record
+                        const updateData = {
+                            tenant_id: document.getElementById('sp-tenant').value,
+                            type: document.getElementById('sp-type').value,
+                            amount: parseFloat(document.getElementById('sp-amount').value),
+                            month: document.getElementById('sp-month').value,
+                        };
+                        if (supportUrl) {
+                            updateData.support_url = supportUrl;
+                            updateData.support_type = supportType;
+                        }
+                        const { error } = await supabaseClient.from('service_payments').update(updateData).eq('id', id);
+                        if (error) throw error;
+                    } else {
+                        await saveServicePaymentToSupabase({
+                            tenantId: document.getElementById('sp-tenant').value,
+                            type: document.getElementById('sp-type').value,
+                            amount: document.getElementById('sp-amount').value,
+                            month: document.getElementById('sp-month').value,
+                            supportUrl, supportType
+                        });
+                    }
                 } catch (err) { alert('Error: ' + err.message); return; }
                 closeModals(); await sync();
             } finally {
@@ -1606,9 +1625,21 @@
             document.getElementById('reading-modal').style.display = 'flex';
         }
 
-        function openServicePaymentModal() {
+        function openServicePaymentModal(id = null) {
             document.getElementById('service-payment-form').reset();
-            document.getElementById('sp-tenant').innerHTML = state.tenants.map(t => `<option value="${t.id}">${t.name}</option>`).join('');
+            document.getElementById('sp-id-hidden').value = id || '';
+            const tenantSelect = document.getElementById('sp-tenant');
+            tenantSelect.innerHTML = state.tenants.map(t => `<option value="${t.id}">${t.name}</option>`).join('');
+            tenantSelect.disabled = !!id;
+            if (id) {
+                const sp = state.servicePayments.find(x => x.id === id);
+                if (sp) {
+                    tenantSelect.value = sp.tenantId;
+                    document.getElementById('sp-type').value = sp.type;
+                    document.getElementById('sp-amount').value = sp.amount;
+                    document.getElementById('sp-month').value = sp.month;
+                }
+            }
             document.getElementById('service-payment-modal').style.display = 'flex';
         }
 
@@ -1757,6 +1788,12 @@
                     document.getElementById('auth-form-content').style.display = 'none';
                     document.getElementById('new-password-form-content').style.display = 'block';
                     lucide.createIcons();
+                    return;
+                }
+                // TOKEN_REFRESHED fires automatically every ~hour; skip full re-init
+                // to avoid unnecessary DB queries while the user is already logged in.
+                if (event === 'TOKEN_REFRESHED' && currentUser) {
+                    currentUser = session.user;
                     return;
                 }
                 if (session?.user) {

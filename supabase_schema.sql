@@ -231,17 +231,23 @@ ALTER TABLE service_payments ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "service_payments: owner all"     ON service_payments;
 DROP POLICY IF EXISTS "service_payments: tenant read"   ON service_payments;
 DROP POLICY IF EXISTS "service_payments: tenant insert" ON service_payments;
+DROP POLICY IF EXISTS "service_payments: tenant update" ON service_payments;
 
 -- Owner: full access
 CREATE POLICY "service_payments: owner all" ON service_payments
     FOR ALL USING (public.is_owner());
 
--- Tenant: can insert and read all service payments
+-- Tenant: can read, insert and update service payments (to attach/update payment receipts)
+-- Note: tenant_id restriction is not applied here as there is no FK between auth.uid()
+-- and the tenants table; this matches the scope of the existing read/insert policies.
 CREATE POLICY "service_payments: tenant read" ON service_payments
     FOR SELECT USING (auth.uid() IS NOT NULL);
 
 CREATE POLICY "service_payments: tenant insert" ON service_payments
     FOR INSERT WITH CHECK (auth.uid() IS NOT NULL);
+
+CREATE POLICY "service_payments: tenant update" ON service_payments
+    FOR UPDATE USING (auth.uid() IS NOT NULL);
 
 -- -------------------------
 -- Storage bucket policy (run after creating the 'supports' bucket)
