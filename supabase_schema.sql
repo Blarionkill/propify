@@ -31,11 +31,11 @@ ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
 --       and the CASE expression in handle_new_user() below.
 -- -------------------------
 CREATE OR REPLACE FUNCTION public.is_owner()
-RETURNS boolean LANGUAGE sql SECURITY DEFINER STABLE SET search_path = '' AS $$
+RETURNS boolean LANGUAGE sql SECURITY DEFINER STABLE SET search_path = '' AS $func$
     SELECT EXISTS (
         SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role = 'owner'
     )
-$$;
+$func$;
 
 -- Drop policies before (re-)creating them so this script is idempotent.
 DROP POLICY IF EXISTS "profiles: own read"              ON profiles;
@@ -56,7 +56,7 @@ CREATE POLICY "profiles: owner read all" ON profiles
 -- NOTE: if the owner email changes, update the CASE expression below AND the policy further down
 --       AND the OWNER_EMAIL constant in propify_app.html.
 CREATE OR REPLACE FUNCTION public.handle_new_user()
-RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
+RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $func$
 BEGIN
     INSERT INTO public.profiles (id, email, role)
     VALUES (
@@ -67,7 +67,7 @@ BEGIN
     ON CONFLICT (id) DO NOTHING;
     RETURN NEW;
 END;
-$$;
+$func$;
 
 DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
 CREATE TRIGGER on_auth_user_created
