@@ -378,7 +378,7 @@
                 font-size: 0.65rem;
                 justify-content: center;
                 border-radius: 8px;
-                width: 20%;
+                flex: 1;
                 text-align: center;
             }
 
@@ -513,6 +513,7 @@
             <a class="nav-item owner-only" onclick="navigate('payments')"><i data-lucide="wallet"></i> <span>Recaudos</span></a>
             <a class="nav-item" onclick="navigate('services')"><i data-lucide="zap"></i> <span>Servicios</span></a>
             <a class="nav-item" onclick="navigate('adminfees')"><i data-lucide="building"></i> <span>Admin</span></a>
+            <a class="nav-item owner-only" onclick="navigate('users')"><i data-lucide="shield"></i> <span>Usuarios</span></a>
         </nav>
         <div style="padding: 1.5rem; border-top: 1px solid var(--border);">
             <div id="sidebar-user-email" style="font-size:0.8rem; color:var(--text-muted); margin-bottom:12px; word-break:break-all;"></div>
@@ -634,11 +635,29 @@
             </div>
         </section>
 
+        <!-- Users Section -->
+        <section id="view-users" class="hidden">
+            <div class="page-header">
+                <h1>Gestión de Usuarios</h1>
+            </div>
+            <div class="card">
+                <div class="table-container">
+                    <table>
+                        <thead><tr><th>Email</th><th>Rol</th><th>Acciones</th></tr></thead>
+                        <tbody id="users-tbody"></tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
         <!-- Admin Fees Section -->
         <section id="view-adminfees" class="hidden">
             <div class="page-header">
                 <h1>Administración</h1>
-                <button class="btn btn-primary owner-only" onclick="openAdminModal()"><i data-lucide="plus"></i> Registro Manual</button>
+                <div class="header-actions">
+                    <button class="btn btn-success owner-only" onclick="openGenerateYearModal()"><i data-lucide="calendar-plus"></i> Generar Año</button>
+                    <button class="btn btn-primary owner-only" onclick="openAdminModal()"><i data-lucide="plus"></i> Registro Manual</button>
+                </div>
             </div>
             <div class="card">
                 <div class="table-container">
@@ -795,6 +814,44 @@
         </div>
     </div>
 
+    <!-- User Role Modal -->
+    <div id="user-role-modal" class="modal-overlay">
+        <div class="modal">
+            <h2>Cambiar Rol de Usuario</h2>
+            <form id="user-role-form" onsubmit="handleUserRoleSubmit(event)">
+                <input type="hidden" id="ur-id-hidden">
+                <div class="form-group"><label>Email</label><input type="text" id="ur-email" class="form-control" readonly style="background:#f1f5f9;"></div>
+                <div class="form-group">
+                    <label>Rol</label>
+                    <select id="ur-role" class="form-control">
+                        <option value="tenant">Inquilino (tenant)</option>
+                        <option value="owner">Propietario (owner)</option>
+                    </select>
+                </div>
+                <div style="display:flex; gap:10px; margin-top: 1rem;">
+                    <button type="submit" class="btn btn-primary" style="flex:1; padding: 14px;">Guardar Rol</button>
+                    <button type="button" class="btn btn-ghost" onclick="closeModals()" style="flex:1;">Cancelar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Generate Year Fees Modal -->
+    <div id="generate-year-modal" class="modal-overlay">
+        <div class="modal">
+            <h2>Generar Cuotas del Año</h2>
+            <form id="generate-year-form" onsubmit="handleGenerateYear(event)">
+                <div class="form-group"><label>Año</label><input type="number" id="gy-year" class="form-control" required></div>
+                <div class="form-group"><label>Monto Mensual ($)</label><input type="number" id="gy-amount" class="form-control" required></div>
+                <p style="font-size:0.85rem; color:var(--text-muted); margin-top:-0.5rem; margin-bottom:1rem;">Solo se crearán los meses que aún no existan.</p>
+                <div style="display:flex; gap:10px; margin-top: 1rem;">
+                    <button type="submit" class="btn btn-success" style="flex:1; padding: 14px;">Generar Cuotas</button>
+                    <button type="button" class="btn btn-ghost" onclick="closeModals()" style="flex:1;">Cancelar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
     <!-- Confirm Dialog -->
     <div id="confirm-modal" class="modal-overlay" style="z-index: 7000;">
         <div class="modal" style="max-width: 350px; text-align: center; padding: 2.5rem 1.5rem;">
@@ -824,7 +881,7 @@
         // =====================================================
         // 2. APP STATE
         // =====================================================
-        let state = { tenants: [], payments: [], services: [], servicePayments: [], adminfees: [], utilityAccounts: [] };
+        let state = { tenants: [], payments: [], services: [], servicePayments: [], adminfees: [], utilityAccounts: [], profiles: [] };
         let currentUser = null;
         let currentRole = null; // 'owner' | 'tenant'
 
@@ -922,13 +979,14 @@
         // 4. SUPABASE DATA LAYER
         // =====================================================
         async function fetchStateFromSupabase() {
-            const [tenantsRes, paymentsRes, readingsRes, spRes, feesRes, uaRes] = await Promise.all([
+            const [tenantsRes, paymentsRes, readingsRes, spRes, feesRes, uaRes, profilesRes] = await Promise.all([
                 supabaseClient.from('tenants').select('*'),
                 supabaseClient.from('payments').select('*').order('created_at', { ascending: false }),
                 supabaseClient.from('service_readings').select('*').order('created_at', { ascending: false }),
                 supabaseClient.from('service_payments').select('*').order('created_at', { ascending: false }),
                 supabaseClient.from('admin_fees').select('*').order('month', { ascending: false }),
                 supabaseClient.from('utility_accounts').select('*'),
+                supabaseClient.from('profiles').select('*'),
             ]);
             return {
                 tenants: (tenantsRes.data || []).map(t => ({
@@ -957,6 +1015,9 @@
                 utilityAccounts: (uaRes.data || []).map(ua => ({
                     id: ua.id, type: ua.type, contract: ua.contract,
                     dueDate: ua.due_date, lastPaidMonth: ua.last_paid_month
+                })),
+                profiles: (profilesRes.data || []).map(pr => ({
+                    id: pr.id, email: pr.email, role: pr.role
                 }))
             };
         }
@@ -1070,6 +1131,7 @@
             renderPayments();
             renderAdminFees();
             renderServices();
+            renderUsers();
             lucide.createIcons();
         }
 
@@ -1100,6 +1162,21 @@
 
             let totalMoraInquilinos = 0;
             state.tenants.forEach(t => {
+                // 4.1 Contract expiring in ≤ 30 days
+                if (t.end) {
+                    const endDate = new Date(t.end + 'T00:00:00');
+                    const diffDays = Math.ceil((endDate - now) / (1000 * 60 * 60 * 24));
+                    if (diffDays > 0 && diffDays <= 30) {
+                        const waContrato = `Estimado/a ${t.name}, le informamos que su contrato de arrendamiento vence el ${t.end} (en ${diffDays} día${diffDays === 1 ? '' : 's'}). Por favor tome las medidas necesarias.`;
+                        alerts.push({
+                            type: 'warning',
+                            title: `Contrato por vencer: ${esc(t.name)}`,
+                            text: `Faltan <strong>${diffDays} día${diffDays === 1 ? '' : 's'}</strong> para el fin del contrato (${esc(t.end)}).`,
+                            phone: t.phone, waMsg: waContrato
+                        });
+                    }
+                }
+
                 let expectedRent = parseFloat(t.rent);
                 let isFraction = false; let daysToCharge = 30;
                 if (t.start && t.start.startsWith(currMonthStr)) {
@@ -1116,10 +1193,22 @@
                     .reduce((s, p) => s + parseFloat(p.amount), 0);
                 const debt = expectedRent - paidRent;
                 if (debt > 0) totalMoraInquilinos += debt;
+
+                // 4.2 Monthly rent reminder on the 1st of each month
+                if (now.getDate() === 1 && debt > 0) {
+                    const waReminder = `Estimado/a ${t.name}, le recordamos que hoy es el 1° del mes y corresponde el pago del canon de arrendamiento por valor de $${expectedRent.toLocaleString()} correspondiente a ${nombreMes}. Gracias.`;
+                    alerts.push({
+                        type: 'warning',
+                        title: `Recordatorio de pago: ${esc(t.name)}`,
+                        text: `Canon de ${nombreMes}: <strong>$${expectedRent.toLocaleString()}</strong>`,
+                        phone: t.phone, waMsg: waReminder
+                    });
+                }
+
+                // 4.3 Overdue after 5th of month (or after payday)
                 if (debt > 0 && now.getDate() > (parseInt(t.payday) || 5)) {
-                    const msgWaMora = isFraction
-                        ? `ATENCIÓN "${t.name.toUpperCase()}": cobro de fracción (${daysToCharge} días) mes "${nombreMes}" por $${debt.toLocaleString()}.`
-                        : `ATENCIÓN "${t.name.toUpperCase()}": incumplimiento de pago mes "${nombreMes}" por $${debt.toLocaleString()}.`;
+                    const concepto = isFraction ? 'fracción de arrendamiento' : 'arrendamiento';
+                    const msgWaMora = `ATENCIÓN "${t.name.toUpperCase()}": Se notifica advertencia de incumplimiento de pago por concepto de ${concepto} correspondiente al mes "${nombreMes}" por un valor de "$${debt.toLocaleString()}". Por favor regularizar de inmediato.`;
                     alerts.push({
                         type: 'danger',
                         title: isFraction ? `Fracción Pendiente: ${esc(t.name)}` : `Mora de Arriendo: ${esc(t.name)}`,
@@ -1248,6 +1337,19 @@
         // =====================================================
         // 9. FORM HANDLERS
         // =====================================================
+        function renderUsers() {
+            const tbody = document.getElementById('users-tbody');
+            if (!tbody) return;
+            tbody.innerHTML = state.profiles.map(pr => `
+                <tr>
+                    <td data-label="Email">${esc(pr.email)}</td>
+                    <td data-label="Rol"><span class="badge ${pr.role === 'owner' ? 'badge-success' : 'badge-danger'}">${esc(pr.role)}</span></td>
+                    <td data-label="Acciones">
+                        <button class="btn btn-ghost" onclick="openUserRoleModal('${esc(pr.id)}')"><i data-lucide="edit-3"></i></button>
+                    </td>
+                </tr>`).join('') || '<tr><td colspan="3" style="text-align:center;color:var(--text-muted);">Sin usuarios registrados</td></tr>';
+        }
+
         async function handleTenantSubmit(e) {
             e.preventDefault();
             const id = document.getElementById('t-id-hidden').value;
@@ -1413,6 +1515,50 @@
             document.getElementById('service-payment-form').reset();
             document.getElementById('sp-tenant').innerHTML = state.tenants.map(t => `<option value="${t.id}">${t.name}</option>`).join('');
             document.getElementById('service-payment-modal').style.display = 'flex';
+        }
+
+        function openUserRoleModal(id) {
+            const pr = state.profiles.find(x => x.id === id);
+            if (!pr) return;
+            document.getElementById('ur-id-hidden').value = pr.id;
+            document.getElementById('ur-email').value = pr.email;
+            document.getElementById('ur-role').value = pr.role;
+            document.getElementById('user-role-modal').style.display = 'flex';
+        }
+
+        function openGenerateYearModal() {
+            document.getElementById('generate-year-form').reset();
+            document.getElementById('gy-year').value = new Date().getFullYear();
+            document.getElementById('gy-amount').value = 204800;
+            document.getElementById('generate-year-modal').style.display = 'flex';
+        }
+
+        async function handleUserRoleSubmit(e) {
+            e.preventDefault();
+            const id = document.getElementById('ur-id-hidden').value;
+            const role = document.getElementById('ur-role').value;
+            const { error } = await supabaseClient.from('profiles').update({ role }).eq('id', id);
+            if (error) { alert('Error: ' + error.message); return; }
+            closeModals(); await sync();
+        }
+
+        async function handleGenerateYear(e) {
+            e.preventDefault();
+            const year = parseInt(document.getElementById('gy-year').value);
+            const amount = parseFloat(document.getElementById('gy-amount').value);
+            if (!year || !amount) return;
+            const months = ['01','02','03','04','05','06','07','08','09','10','11','12'];
+            const existing = state.adminfees.map(af => af.month);
+            const missing = months.map(m => `${year}-${m}`).filter(k => !existing.includes(k));
+            if (missing.length === 0) {
+                alert(`Todos los meses de ${year} ya existen.`);
+                return;
+            }
+            const { error } = await supabaseClient.from('admin_fees').insert(
+                missing.map(month => ({ month, amount, status: 'Pendiente' }))
+            );
+            if (error) { alert('Error: ' + error.message); return; }
+            closeModals(); await sync();
         }
 
         // =====================================================
