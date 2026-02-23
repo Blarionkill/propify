@@ -469,6 +469,9 @@
                 <button id="auth-btn" class="btn btn-primary" style="width: 100%; padding: 14px;" onclick="signIn()">
                     <i data-lucide="log-in"></i> Iniciar Sesión
                 </button>
+                <button id="magic-link-btn" class="btn btn-ghost" style="width: 100%; padding: 14px; margin-top: 10px;" onclick="signInWithLink()">
+                    <i data-lucide="mail"></i> Ingresar con enlace
+                </button>
                 <div style="margin-top: 1rem; text-align: center;">
                     <button id="reset-btn" class="btn btn-ghost" style="font-size:0.85rem; color:var(--text-muted); background:none; border:none; cursor:pointer; text-decoration:underline;" onclick="resetPassword()">
                         ¿Olvidaste tu contraseña?
@@ -925,6 +928,28 @@
             await supabaseClient.auth.signOut();
         }
 
+        async function signInWithLink() {
+            const email = document.getElementById('auth-email').value.trim();
+            if (!email) { alert('Por favor ingresa tu email para recibir el enlace de acceso.'); return; }
+            const btn = document.getElementById('magic-link-btn');
+            btn.disabled = true;
+            btn.textContent = 'Enviando...';
+            const { error } = await supabaseClient.auth.signInWithOtp({
+                email,
+                // shouldCreateUser: false – the owner account must already exist in Supabase Auth.
+                // This prevents unknown email addresses from accidentally creating accounts.
+                options: { emailRedirectTo: window.location.href, shouldCreateUser: false }
+            });
+            btn.disabled = false;
+            btn.innerHTML = '<i data-lucide="mail"></i> Ingresar con enlace';
+            lucide.createIcons();
+            if (error) {
+                alert('Error: ' + error.message);
+            } else {
+                alert('Te enviamos un enlace de acceso. Revisa tu correo y haz clic en él para ingresar.');
+            }
+        }
+
         async function resetPassword() {
             const email = document.getElementById('auth-email').value.trim();
             if (!email) { alert('Por favor ingresa tu email para restablecer la contraseña.'); return; }
@@ -959,10 +984,9 @@
             if (error) {
                 alert('Error: ' + error.message);
             } else {
-                alert('Contraseña actualizada correctamente. Ya puedes iniciar sesión.');
+                alert('Contraseña actualizada correctamente. Ya puedes usar la aplicación.');
                 document.getElementById('new-password-form-content').style.display = 'none';
                 document.getElementById('auth-form-content').style.display = 'block';
-                await supabaseClient.auth.signOut();
             }
         }
 
@@ -971,15 +995,11 @@
             // If you need to change the owner email, update OWNER_EMAIL at the top of this file
             // AND re-run the SQL schema (trigger function + policies) in Supabase.
             if (userEmail && userEmail.toLowerCase() === OWNER_EMAIL.toLowerCase()) {
-                // Best-effort DB sync: ensure the profile row has role='owner' so that
-                // server-side RLS policies allow owner operations (add tenants, payments, etc.).
-                // If this update fails (RLS not yet applied, network error, etc.) we still
-                // return 'owner' so the UI shows the correct tabs.  The schema's
-                // "profiles: owner email bootstrap" policy makes this succeed on the first run.
-                await supabaseClient.from('profiles')
-                    .update({ role: 'owner' })
-                    .eq('id', userId)
-                    .neq('role', 'owner');
+                // Upsert ensures the profile row exists with role='owner', even if the
+                // on_auth_user_created trigger never ran (e.g., schema applied after signup).
+                const { error: upsertErr } = await supabaseClient.from('profiles')
+                    .upsert({ id: userId, email: userEmail, role: 'owner' }, { onConflict: 'id' });
+                if (upsertErr) console.error('Profile upsert error (owner):', upsertErr.message);
                 return 'owner';
             }
             const { data } = await supabaseClient.from('profiles').select('role').eq('id', userId).single();
