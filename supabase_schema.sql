@@ -2,6 +2,7 @@
 -- Propify – Supabase Schema
 -- Run this in the Supabase SQL Editor to set up all tables,
 -- RLS policies and the trigger that auto-creates profiles.
+-- This script is idempotent: safe to re-run on an existing DB.
 -- ============================================================
 
 -- -------------------------
@@ -20,20 +21,42 @@ CREATE TABLE IF NOT EXISTS profiles (
 
 ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
 
+-- -------------------------
+-- is_owner() helper
+-- SECURITY DEFINER: bypasses RLS on profiles, preventing infinite recursion
+-- in policies that need to check whether the current user is an owner.
+-- Returns false (not true) when no user is authenticated (auth.uid() is null),
+-- so unauthenticated requests are always denied.
+-- NOTE: if the owner email changes, also update OWNER_EMAIL in propify_app.html
+--       and the CASE expression in handle_new_user() below.
+-- -------------------------
+CREATE OR REPLACE FUNCTION public.is_owner()
+RETURNS boolean LANGUAGE sql SECURITY DEFINER STABLE SET search_path = '' AS $func$
+    SELECT EXISTS (
+        SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role = 'owner'
+    )
+$func$;
+
+-- Drop policies before (re-)creating them so this script is idempotent.
+DROP POLICY IF EXISTS "profiles: own read"              ON profiles;
+DROP POLICY IF EXISTS "profiles: owner read all"        ON profiles;
+DROP POLICY IF EXISTS "profiles: owner update all"      ON profiles;
+DROP POLICY IF EXISTS "profiles: owner email bootstrap" ON profiles;
+DROP POLICY IF EXISTS "profiles: owner email self insert" ON profiles;
+
 -- Users can read their own profile; owner can read all
 CREATE POLICY "profiles: own read" ON profiles
     FOR SELECT USING (auth.uid() = id);
 
+-- Uses is_owner() to avoid self-referential recursion
 CREATE POLICY "profiles: owner read all" ON profiles
-    FOR SELECT USING (
-        EXISTS (SELECT 1 FROM profiles p WHERE p.id = auth.uid() AND p.role = 'owner')
-    );
+    FOR SELECT USING (public.is_owner());
 
 -- Auto-create a profile on first sign-in (owner email gets 'owner' role, others get 'tenant')
 -- NOTE: if the owner email changes, update the CASE expression below AND the policy further down
 --       AND the OWNER_EMAIL constant in propify_app.html.
 CREATE OR REPLACE FUNCTION public.handle_new_user()
-RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
+RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $func$
 BEGIN
     INSERT INTO public.profiles (id, email, role)
     VALUES (
@@ -44,18 +67,16 @@ BEGIN
     ON CONFLICT (id) DO NOTHING;
     RETURN NEW;
 END;
-$$;
+$func$;
 
 DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
 CREATE TRIGGER on_auth_user_created
     AFTER INSERT ON auth.users
     FOR EACH ROW EXECUTE PROCEDURE public.handle_new_user();
 
--- Allow owner to update any profile (e.g., to change roles)
+-- Allow owner to update any profile (e.g., to change roles). Uses is_owner() to avoid recursion.
 CREATE POLICY "profiles: owner update all" ON profiles
-    FOR UPDATE USING (
-        EXISTS (SELECT 1 FROM profiles p WHERE p.id = auth.uid() AND p.role = 'owner')
-    );
+    FOR UPDATE USING (public.is_owner());
 
 -- Allow the designated owner email to bootstrap their own role to 'owner'
 -- (needed on first login before any owner profile exists)
@@ -63,6 +84,11 @@ CREATE POLICY "profiles: owner email bootstrap" ON profiles
     FOR UPDATE
     USING (auth.uid() = id AND lower(auth.email()) = 'bxfrias@gmail.com')
     WITH CHECK (role = 'owner');
+
+-- Allow the owner to insert their own profile if the trigger did not create it
+CREATE POLICY "profiles: owner email self insert" ON profiles
+    FOR INSERT
+    WITH CHECK (auth.uid() = id AND lower(auth.email()) = 'bxfrias@gmail.com' AND role = 'owner');
 
 -- Fix any existing profile for the owner that was created with role='tenant'
 UPDATE profiles SET role = 'owner' WHERE lower(email) = 'bxfrias@gmail.com' AND role != 'owner';
@@ -84,10 +110,11 @@ CREATE TABLE IF NOT EXISTS tenants (
 ALTER TABLE tenants ENABLE ROW LEVEL SECURITY;
 
 -- Owner: full access; Tenant: read-only
+DROP POLICY IF EXISTS "tenants: owner all"   ON tenants;
+DROP POLICY IF EXISTS "tenants: tenant read" ON tenants;
+
 CREATE POLICY "tenants: owner all" ON tenants
-    FOR ALL USING (
-        EXISTS (SELECT 1 FROM profiles p WHERE p.id = auth.uid() AND p.role = 'owner')
-    );
+    FOR ALL USING (public.is_owner());
 
 CREATE POLICY "tenants: tenant read" ON tenants
     FOR SELECT USING (auth.uid() IS NOT NULL);
@@ -108,10 +135,11 @@ CREATE TABLE IF NOT EXISTS payments (
 
 ALTER TABLE payments ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "payments: owner all"   ON payments;
+DROP POLICY IF EXISTS "payments: tenant read" ON payments;
+
 CREATE POLICY "payments: owner all" ON payments
-    FOR ALL USING (
-        EXISTS (SELECT 1 FROM profiles p WHERE p.id = auth.uid() AND p.role = 'owner')
-    );
+    FOR ALL USING (public.is_owner());
 
 CREATE POLICY "payments: tenant read" ON payments
     FOR SELECT USING (auth.uid() IS NOT NULL);
@@ -129,10 +157,11 @@ CREATE TABLE IF NOT EXISTS admin_fees (
 
 ALTER TABLE admin_fees ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "admin_fees: owner all"   ON admin_fees;
+DROP POLICY IF EXISTS "admin_fees: tenant read" ON admin_fees;
+
 CREATE POLICY "admin_fees: owner all" ON admin_fees
-    FOR ALL USING (
-        EXISTS (SELECT 1 FROM profiles p WHERE p.id = auth.uid() AND p.role = 'owner')
-    );
+    FOR ALL USING (public.is_owner());
 
 CREATE POLICY "admin_fees: tenant read" ON admin_fees
     FOR SELECT USING (auth.uid() IS NOT NULL);
@@ -150,10 +179,11 @@ CREATE TABLE IF NOT EXISTS utility_accounts (
 
 ALTER TABLE utility_accounts ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "utility_accounts: owner all"   ON utility_accounts;
+DROP POLICY IF EXISTS "utility_accounts: tenant read" ON utility_accounts;
+
 CREATE POLICY "utility_accounts: owner all" ON utility_accounts
-    FOR ALL USING (
-        EXISTS (SELECT 1 FROM profiles p WHERE p.id = auth.uid() AND p.role = 'owner')
-    );
+    FOR ALL USING (public.is_owner());
 
 CREATE POLICY "utility_accounts: tenant read" ON utility_accounts
     FOR SELECT USING (auth.uid() IS NOT NULL);
@@ -172,10 +202,11 @@ CREATE TABLE IF NOT EXISTS service_readings (
 
 ALTER TABLE service_readings ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "service_readings: owner all"   ON service_readings;
+DROP POLICY IF EXISTS "service_readings: tenant read" ON service_readings;
+
 CREATE POLICY "service_readings: owner all" ON service_readings
-    FOR ALL USING (
-        EXISTS (SELECT 1 FROM profiles p WHERE p.id = auth.uid() AND p.role = 'owner')
-    );
+    FOR ALL USING (public.is_owner());
 
 CREATE POLICY "service_readings: tenant read" ON service_readings
     FOR SELECT USING (auth.uid() IS NOT NULL);
@@ -197,11 +228,13 @@ CREATE TABLE IF NOT EXISTS service_payments (
 
 ALTER TABLE service_payments ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "service_payments: owner all"     ON service_payments;
+DROP POLICY IF EXISTS "service_payments: tenant read"   ON service_payments;
+DROP POLICY IF EXISTS "service_payments: tenant insert" ON service_payments;
+
 -- Owner: full access
 CREATE POLICY "service_payments: owner all" ON service_payments
-    FOR ALL USING (
-        EXISTS (SELECT 1 FROM profiles p WHERE p.id = auth.uid() AND p.role = 'owner')
-    );
+    FOR ALL USING (public.is_owner());
 
 -- Tenant: can insert and read all service payments
 CREATE POLICY "service_payments: tenant read" ON service_payments
@@ -215,6 +248,9 @@ CREATE POLICY "service_payments: tenant insert" ON service_payments
 -- -------------------------
 -- INSERT INTO storage.buckets (id, name, public) VALUES ('supports', 'supports', true)
 -- ON CONFLICT (id) DO NOTHING;
+
+DROP POLICY IF EXISTS "supports: public read"          ON storage.objects;
+DROP POLICY IF EXISTS "supports: authenticated upload" ON storage.objects;
 
 CREATE POLICY "supports: public read" ON storage.objects
     FOR SELECT USING (bucket_id = 'supports');
