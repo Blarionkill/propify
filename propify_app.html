@@ -511,7 +511,7 @@
             Propify
         </div>
         <nav class="nav-links">
-            <a class="nav-item active" onclick="navigate('dashboard')"><i data-lucide="layout-grid"></i> <span>Dashboard</span></a>
+            <a class="nav-item active owner-only" onclick="navigate('dashboard')"><i data-lucide="layout-grid"></i> <span>Dashboard</span></a>
             <a class="nav-item" onclick="navigate('tenants')"><i data-lucide="users"></i> <span>Inquilinos</span></a>
             <a class="nav-item" onclick="navigate('payments')"><i data-lucide="wallet"></i> <span>Recaudos</span></a>
             <a class="nav-item" onclick="navigate('services')"><i data-lucide="zap"></i> <span>Servicios</span></a>
@@ -531,7 +531,7 @@
 
     <main id="main-content">
         <!-- Dashboard Section -->
-        <section id="view-dashboard">
+        <section id="view-dashboard" class="owner-only">
             <div class="page-header">
                 <h1>Resumen de Gestión</h1>
             </div>
@@ -607,7 +607,7 @@
                 </div>
             </div>
 
-            <div class="card owner-only">
+            <div class="card">
                 <div class="card-header"><h2>Cuentas Maestras</h2></div>
                 <div class="table-container">
                     <table>
@@ -617,7 +617,7 @@
                 </div>
             </div>
 
-            <div class="card owner-only">
+            <div class="card">
                 <div class="card-header"><h2>Registro de Medidores</h2></div>
                 <div class="table-container">
                     <table>
@@ -1021,6 +1021,14 @@
         function applyRoleUI(role) {
             const isOwner = role === 'owner';
             document.querySelectorAll('.owner-only').forEach(el => el.classList.toggle('hidden', !isOwner));
+            if (!isOwner) {
+                // Dashboard is owner-only; navigate to the first available tenant view
+                if (!document.querySelector('main > section:not(.hidden)')) {
+                    navigate('tenants');
+                    const tenantsNav = document.querySelector(".nav-item[onclick=\"navigate('tenants')\"]");
+                    if (tenantsNav) tenantsNav.classList.add('active');
+                }
+            }
         }
 
         // =====================================================
