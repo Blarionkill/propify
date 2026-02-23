@@ -1764,11 +1764,10 @@
         // =====================================================
         // 14. APP INIT
         // =====================================================
-        let authSeq = 0; // incremented on every auth event to detect stale callbacks
+        let authSeq = 0; // incremented on sign-in/sign-out events to detect stale callbacks
         window.onload = async () => {
             // Handle auth state changes
             supabaseClient.auth.onAuthStateChange(async (event, session) => {
-                const mySeq = ++authSeq;
                 if (event === 'PASSWORD_RECOVERY') {
                     document.getElementById('auth-overlay').style.display = 'flex';
                     document.getElementById('auth-form-content').style.display = 'none';
@@ -1778,10 +1777,13 @@
                 }
                 // TOKEN_REFRESHED fires automatically every ~hour; skip full re-init
                 // to avoid unnecessary DB queries while the user is already logged in.
+                // NOTE: authSeq is NOT incremented here so that an in-progress SIGNED_IN
+                // callback (which awaits the owner profile upsert) is not wrongly aborted.
                 if (event === 'TOKEN_REFRESHED' && currentUser) {
                     currentUser = session.user;
                     return;
                 }
+                const mySeq = ++authSeq;
                 if (session?.user) {
                     currentUser = session.user;
                     adminFeesEnsured = false; // reset on every new session so fees are checked once per login
