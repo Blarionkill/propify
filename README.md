@@ -16,7 +16,7 @@ Sigue estos pasos en orden. Cada uno se detalla en las secciones siguientes.
 - [ ] **Paso 6 — Crea los usuarios** en *Authentication → Users → Invite user* (o vía la API) con email y contraseña.
 - [ ] **Paso 7 — Asigna roles**: una vez creado cada usuario, ve a *Authentication → Users* en Supabase, copia sus UUIDs y ejecuta el INSERT de la sección [Usuarios / Roles](#usuarios--roles).
 - [ ] **Paso 8 — Despliega en Netlify**: conecta este repositorio desde *Netlify → Add new site → Import an existing project → GitHub*. Build command: vacío. Publish directory: `.`
-- [ ] **¡Listo!** Entra a `https://tu-sitio.netlify.app/propify_app.html`, ingresa tu email y contraseña.
+- [ ] **¡Listo!** Entra a `[https://tu-sitio.netlify.app/propify_app.html](https://propify-manager.netlify.app/propify_app.html)`, ingresa tu email y contraseña.
 
 ---
 
