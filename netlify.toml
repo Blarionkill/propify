@@ -17,3 +17,21 @@
 [build]
   command     = "sed -i 's|YOUR_SUPABASE_URL|'\"$SUPABASE_URL\"'|g' propify_app.html && sed -i 's|YOUR_SUPABASE_ANON_KEY|'\"$SUPABASE_ANON_KEY\"'|g' propify_app.html"
   publish     = "."
+
+# Cache the app HTML for a short time; users always get a fresh copy
+# but repeat visits within 60 s use the browser cache.
+[[headers]]
+  for = "/propify_app.html"
+  [headers.values]
+    Cache-Control = "public, max-age=60, stale-while-revalidate=300"
+
+# Cache long-lived static assets (e.g. future JS/CSS files) aggressively.
+[[headers]]
+  for = "/*.js"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+[[headers]]
+  for = "/*.css"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"

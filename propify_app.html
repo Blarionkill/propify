@@ -4,8 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Propify Manager - App Edition</title>
-    <!-- Iconos: Lucide -->
-    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- Iconos: Lucide (pinned version for stable, fast loading via jsDelivr) -->
+    <script src="https://cdn.jsdelivr.net/npm/lucide@0.469.0/dist/umd/lucide.min.js"></script>
     <!-- Supabase JS (UMD) -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
     <style>
@@ -469,9 +469,6 @@
                 <button id="auth-btn" class="btn btn-primary" style="width: 100%; padding: 14px;" onclick="signIn()">
                     <i data-lucide="log-in"></i> Iniciar Sesión
                 </button>
-                <button id="magic-link-btn" class="btn btn-ghost" style="width: 100%; padding: 14px; margin-top: 10px;" onclick="signInWithLink()">
-                    <i data-lucide="mail"></i> Ingresar con enlace
-                </button>
                 <div style="margin-top: 1rem; text-align: center;">
                     <button id="reset-btn" class="btn btn-ghost" style="font-size:0.85rem; color:var(--text-muted); background:none; border:none; cursor:pointer; text-decoration:underline;" onclick="resetPassword()">
                         ¿Olvidaste tu contraseña?
@@ -895,6 +892,7 @@
         let state = { tenants: [], payments: [], services: [], servicePayments: [], adminfees: [], utilityAccounts: [], profiles: [] };
         let currentUser = null;
         let currentRole = null; // 'owner' | 'tenant'
+        let adminFeesEnsured = false; // only run ensureCurrentYearAdminFees once per session
 
         // HTML-escape helper to prevent XSS when injecting user data into innerHTML
         function esc(str) {
@@ -939,28 +937,6 @@
 
         async function logout() {
             await supabaseClient.auth.signOut();
-        }
-
-        async function signInWithLink() {
-            const email = document.getElementById('auth-email').value.trim();
-            if (!email) { alert('Por favor ingresa tu email para recibir el enlace de acceso.'); return; }
-            const btn = document.getElementById('magic-link-btn');
-            btn.disabled = true;
-            btn.textContent = 'Enviando...';
-            const { error } = await supabaseClient.auth.signInWithOtp({
-                email,
-                // shouldCreateUser: false – the owner account must already exist in Supabase Auth.
-                // This prevents unknown email addresses from accidentally creating accounts.
-                options: { emailRedirectTo: window.location.href, shouldCreateUser: false }
-            });
-            btn.disabled = false;
-            btn.innerHTML = '<i data-lucide="mail"></i> Ingresar con enlace';
-            lucide.createIcons();
-            if (error) {
-                alert('Error: ' + error.message);
-            } else {
-                alert('Te enviamos un enlace de acceso. Revisa tu correo y haz clic en él para ingresar.');
-            }
         }
 
         async function resetPassword() {
@@ -1136,8 +1112,9 @@
                 try {
                     if (attempt > 0) await new Promise(r => setTimeout(r, 1000 * Math.pow(2, attempt - 1)));
                     state = await fetchStateFromSupabase();
-                    if (currentRole === 'owner') {
+                    if (currentRole === 'owner' && !adminFeesEnsured) {
                         await ensureCurrentYearAdminFees();
+                        adminFeesEnsured = true;
                         // Re-fetch admin fees after potential creation
                         const { data } = await supabaseClient.from('admin_fees').select('*').order('month', { ascending: false });
                         state.adminfees = (data || []).map(af => ({
@@ -1828,6 +1805,7 @@
                 } else {
                     currentUser = null;
                     currentRole = null;
+                    adminFeesEnsured = false;
                     document.getElementById('auth-form-content').style.display = 'block';
                     document.getElementById('new-password-form-content').style.display = 'none';
                     document.getElementById('auth-overlay').style.display = 'flex';
