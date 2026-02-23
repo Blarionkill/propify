@@ -875,6 +875,7 @@
         // =====================================================
         const SUPABASE_URL = 'https://inkzbetwxxdvxobvuuib.supabase.co';
         const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imlua3piZXR3eHhkdnhvYnZ1dWliIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE4MDIwNzIsImV4cCI6MjA4NzM3ODA3Mn0.DHlooMJo4rwEsyXoDgeFkCSAH6oyLvLDUZYXYgVEc6E';
+        const OWNER_EMAIL = 'bxfrias@gmail.com';
 
         const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
@@ -920,8 +921,8 @@
             }
         }
 
-        function logout() {
-            supabaseClient.auth.signOut();
+        async function logout() {
+            await supabaseClient.auth.signOut();
         }
 
         async function resetPassword() {
@@ -965,7 +966,22 @@
             }
         }
 
-        async function getUserRole(userId) {
+        async function getUserRole(userId, userEmail) {
+            // OWNER_EMAIL is the single source of truth for the designated owner account.
+            // If you need to change the owner email, update OWNER_EMAIL at the top of this file
+            // AND re-run the SQL schema (trigger function + policies) in Supabase.
+            if (userEmail && userEmail.toLowerCase() === OWNER_EMAIL.toLowerCase()) {
+                // Best-effort DB sync: ensure the profile row has role='owner' so that
+                // server-side RLS policies allow owner operations (add tenants, payments, etc.).
+                // If this update fails (RLS not yet applied, network error, etc.) we still
+                // return 'owner' so the UI shows the correct tabs.  The schema's
+                // "profiles: owner email bootstrap" policy makes this succeed on the first run.
+                await supabaseClient.from('profiles')
+                    .update({ role: 'owner' })
+                    .eq('id', userId)
+                    .neq('role', 'owner');
+                return 'owner';
+            }
             const { data } = await supabaseClient.from('profiles').select('role').eq('id', userId).single();
             return data?.role || 'tenant';
         }
@@ -1631,9 +1647,11 @@
         // =====================================================
         // 14. APP INIT
         // =====================================================
+        let authSeq = 0; // incremented on every auth event to detect stale callbacks
         window.onload = async () => {
             // Handle auth state changes
             supabaseClient.auth.onAuthStateChange(async (event, session) => {
+                const mySeq = ++authSeq;
                 if (event === 'PASSWORD_RECOVERY') {
                     document.getElementById('auth-overlay').style.display = 'flex';
                     document.getElementById('auth-form-content').style.display = 'none';
@@ -1643,7 +1661,17 @@
                 }
                 if (session?.user) {
                     currentUser = session.user;
-                    currentRole = await getUserRole(session.user.id);
+                    try {
+                        currentRole = await getUserRole(session.user.id, session.user.email);
+                    } catch (e) {
+                        // getUserRole only reaches the DB query for non-owner emails, so
+                        // a failure here never silently demotes the designated owner.
+                        // For other users, falling back to 'tenant' is the safe default.
+                        console.error('Error fetching role:', e);
+                        currentRole = 'tenant';
+                    }
+                    // Guard: a newer auth event (e.g. SIGNED_OUT) fired while we awaited
+                    if (mySeq !== authSeq) return;
                     document.getElementById('auth-overlay').style.display = 'none';
                     const emailEl = document.getElementById('user-email-display');
                     const sidebarEmailEl = document.getElementById('sidebar-user-email');
@@ -1654,6 +1682,8 @@
                 } else {
                     currentUser = null;
                     currentRole = null;
+                    document.getElementById('auth-form-content').style.display = 'block';
+                    document.getElementById('new-password-form-content').style.display = 'none';
                     document.getElementById('auth-overlay').style.display = 'flex';
                 }
             });

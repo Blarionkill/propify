@@ -29,12 +29,18 @@ CREATE POLICY "profiles: owner read all" ON profiles
         EXISTS (SELECT 1 FROM profiles p WHERE p.id = auth.uid() AND p.role = 'owner')
     );
 
--- Auto-create a profile on first sign-in (role defaults to 'tenant')
+-- Auto-create a profile on first sign-in (owner email gets 'owner' role, others get 'tenant')
+-- NOTE: if the owner email changes, update the CASE expression below AND the policy further down
+--       AND the OWNER_EMAIL constant in propify_app.html.
 CREATE OR REPLACE FUNCTION public.handle_new_user()
-RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER AS $$
+RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
 BEGIN
     INSERT INTO public.profiles (id, email, role)
-    VALUES (NEW.id, NEW.email, 'tenant')
+    VALUES (
+        NEW.id,
+        NEW.email,
+        CASE WHEN lower(NEW.email) = 'bxfrias@gmail.com' THEN 'owner' ELSE 'tenant' END
+    )
     ON CONFLICT (id) DO NOTHING;
     RETURN NEW;
 END;
@@ -50,6 +56,16 @@ CREATE POLICY "profiles: owner update all" ON profiles
     FOR UPDATE USING (
         EXISTS (SELECT 1 FROM profiles p WHERE p.id = auth.uid() AND p.role = 'owner')
     );
+
+-- Allow the designated owner email to bootstrap their own role to 'owner'
+-- (needed on first login before any owner profile exists)
+CREATE POLICY "profiles: owner email bootstrap" ON profiles
+    FOR UPDATE
+    USING (auth.uid() = id AND lower(auth.email()) = 'bxfrias@gmail.com')
+    WITH CHECK (role = 'owner');
+
+-- Fix any existing profile for the owner that was created with role='tenant'
+UPDATE profiles SET role = 'owner' WHERE lower(email) = 'bxfrias@gmail.com' AND role != 'owner';
 
 -- -------------------------
 -- tenants
