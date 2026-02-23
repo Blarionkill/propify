@@ -880,7 +880,12 @@
         const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imlua3piZXR3eHhkdnhvYnZ1dWliIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE4MDIwNzIsImV4cCI6MjA4NzM3ODA3Mn0.DHlooMJo4rwEsyXoDgeFkCSAH6oyLvLDUZYXYgVEc6E';
         const OWNER_EMAIL = 'bxfrias@gmail.com';
 
-        const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+        const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+            auth: {
+                detectSessionInUrl: true,
+                persistSession: true
+            }
+        });
 
         // =====================================================
         // 2. APP STATE
@@ -915,12 +920,18 @@
             const btn = document.getElementById('auth-btn');
             btn.disabled = true;
             btn.textContent = 'Ingresando...';
-            const { error } = await supabaseClient.auth.signInWithPassword({ email, password });
-            btn.disabled = false;
-            btn.innerHTML = '<i data-lucide="log-in"></i> Iniciar Sesión';
-            lucide.createIcons();
-            if (error) {
-                alert('Error: ' + error.message);
+            try {
+                const { error } = await supabaseClient.auth.signInWithPassword({ email, password });
+                if (error) {
+                    alert('Error: ' + error.message);
+                }
+            } catch (e) {
+                console.error('signIn error:', e);
+                alert('Error de conexión. Verifica tu internet e intenta de nuevo.');
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = '<i data-lucide="log-in"></i> Iniciar Sesión';
+                lucide.createIcons();
             }
         }
 
@@ -1110,20 +1121,27 @@
         // 5. SYNC
         // =====================================================
         async function sync() {
-            try {
-                state = await fetchStateFromSupabase();
-                if (currentRole === 'owner') {
-                    await ensureCurrentYearAdminFees();
-                    // Re-fetch admin fees after potential creation
-                    const { data } = await supabaseClient.from('admin_fees').select('*').order('month', { ascending: false });
-                    state.adminfees = (data || []).map(af => ({
-                        id: af.id, month: af.month, amount: af.amount,
-                        status: af.status, createdAt: af.created_at
-                    }));
+            let lastError;
+            for (let attempt = 0; attempt < 3; attempt++) {
+                try {
+                    if (attempt > 0) await new Promise(r => setTimeout(r, 1000 * Math.pow(2, attempt - 1)));
+                    state = await fetchStateFromSupabase();
+                    if (currentRole === 'owner') {
+                        await ensureCurrentYearAdminFees();
+                        // Re-fetch admin fees after potential creation
+                        const { data } = await supabaseClient.from('admin_fees').select('*').order('month', { ascending: false });
+                        state.adminfees = (data || []).map(af => ({
+                            id: af.id, month: af.month, amount: af.amount,
+                            status: af.status, createdAt: af.created_at
+                        }));
+                    }
+                    break;
+                } catch (e) {
+                    lastError = e;
+                    console.error(`Sync error (attempt ${attempt + 1}):`, e);
                 }
-            } catch (e) {
-                console.error('Sync error:', e);
             }
+            if (lastError) console.error('Sync failed after 3 attempts:', lastError);
             renderAll();
         }
 
