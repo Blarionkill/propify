@@ -893,6 +893,7 @@
         let currentUser = null;
         let currentRole = null; // 'owner' | 'tenant'
         let adminFeesEnsured = false; // only run ensureCurrentYearAdminFees once per session
+        let isSyncing = false; // prevents concurrent sync() calls
 
         // HTML-escape helper to prevent XSS when injecting user data into innerHTML
         function esc(str) {
@@ -1107,29 +1108,35 @@
         // 5. SYNC
         // =====================================================
         async function sync() {
-            let lastError;
-            for (let attempt = 0; attempt < 3; attempt++) {
-                try {
-                    if (attempt > 0) await new Promise(r => setTimeout(r, 1000 * Math.pow(2, attempt - 1)));
-                    state = await fetchStateFromSupabase();
-                    if (currentRole === 'owner' && !adminFeesEnsured) {
-                        await ensureCurrentYearAdminFees();
-                        adminFeesEnsured = true;
-                        // Re-fetch admin fees after potential creation
-                        const { data } = await supabaseClient.from('admin_fees').select('*').order('month', { ascending: false });
-                        state.adminfees = (data || []).map(af => ({
-                            id: af.id, month: af.month, amount: af.amount,
-                            status: af.status, createdAt: af.created_at
-                        }));
+            if (isSyncing) { console.debug('sync() skipped: already in progress'); return; }
+            isSyncing = true;
+            try {
+                let lastError;
+                for (let attempt = 0; attempt < 3; attempt++) {
+                    try {
+                        if (attempt > 0) await new Promise(r => setTimeout(r, 1000 * Math.pow(2, attempt - 1)));
+                        state = await fetchStateFromSupabase();
+                        if (currentRole === 'owner' && !adminFeesEnsured) {
+                            await ensureCurrentYearAdminFees();
+                            adminFeesEnsured = true;
+                            // Re-fetch admin fees after potential creation
+                            const { data } = await supabaseClient.from('admin_fees').select('*').order('month', { ascending: false });
+                            state.adminfees = (data || []).map(af => ({
+                                id: af.id, month: af.month, amount: af.amount,
+                                status: af.status, createdAt: af.created_at
+                            }));
+                        }
+                        break;
+                    } catch (e) {
+                        lastError = e;
+                        console.error(`Sync error (attempt ${attempt + 1}):`, e);
                     }
-                    break;
-                } catch (e) {
-                    lastError = e;
-                    console.error(`Sync error (attempt ${attempt + 1}):`, e);
                 }
+                if (lastError) console.error('Sync failed after 3 attempts:', lastError);
+                renderAll();
+            } finally {
+                isSyncing = false;
             }
-            if (lastError) console.error('Sync failed after 3 attempts:', lastError);
-            renderAll();
         }
 
         // =====================================================
@@ -1395,6 +1402,7 @@
         async function handleTenantSubmit(e) {
             e.preventDefault();
             const btn = e.submitter || e.target.querySelector('button[type="submit"]');
+            if (btn && btn.disabled) return;
             const originalHTML = btn ? btn.innerHTML : '';
             if (btn) { btn.disabled = true; btn.textContent = 'Guardando...'; }
             try {
@@ -1420,6 +1428,7 @@
         async function handlePaymentSubmit(e) {
             e.preventDefault();
             const btn = e.submitter || e.target.querySelector('button[type="submit"]');
+            if (btn && btn.disabled) return;
             const originalHTML = btn ? btn.innerHTML : '';
             if (btn) { btn.disabled = true; btn.textContent = 'Guardando...'; }
             try {
@@ -1449,6 +1458,7 @@
         async function handleAdminSubmit(e) {
             e.preventDefault();
             const btn = e.submitter || e.target.querySelector('button[type="submit"]');
+            if (btn && btn.disabled) return;
             const originalHTML = btn ? btn.innerHTML : '';
             if (btn) { btn.disabled = true; btn.textContent = 'Guardando...'; }
             try {
@@ -1458,16 +1468,18 @@
                     amount: document.getElementById('a-amount').value,
                     status: document.getElementById('a-status').value
                 });
-            } catch (err) { alert('Error: ' + err.message); return; }
+                closeModals();
+                await sync(); // sync() catches all its own errors and never throws
+            } catch (err) { alert('Error: ' + err.message); }
             finally {
                 if (btn) { btn.disabled = false; btn.innerHTML = originalHTML; }
             }
-            closeModals(); await sync();
         }
 
         async function handleServicePaymentSubmit(e) {
             e.preventDefault();
             const btn = e.submitter || e.target.querySelector('button[type="submit"]');
+            if (btn && btn.disabled) return;
             const originalHTML = btn ? btn.innerHTML : '';
             if (btn) { btn.disabled = true; btn.textContent = 'Guardando...'; }
             try {
@@ -1514,6 +1526,7 @@
         async function handleReadingSubmit(e) {
             e.preventDefault();
             const btn = e.submitter || e.target.querySelector('button[type="submit"]');
+            if (btn && btn.disabled) return;
             const originalHTML = btn ? btn.innerHTML : '';
             if (btn) { btn.disabled = true; btn.textContent = 'Guardando...'; }
             try {
@@ -1532,6 +1545,7 @@
         async function handleUtilitySubmit(e) {
             e.preventDefault();
             const btn = e.submitter || e.target.querySelector('button[type="submit"]');
+            if (btn && btn.disabled) return;
             const originalHTML = btn ? btn.innerHTML : '';
             if (btn) { btn.disabled = true; btn.textContent = 'Guardando...'; }
             try {
@@ -1648,6 +1662,7 @@
         async function handleUserRoleSubmit(e) {
             e.preventDefault();
             const btn = e.submitter || e.target.querySelector('button[type="submit"]');
+            if (btn && btn.disabled) return;
             const originalHTML = btn ? btn.innerHTML : '';
             if (btn) { btn.disabled = true; btn.textContent = 'Guardando...'; }
             try {
@@ -1664,6 +1679,7 @@
         async function handleGenerateYear(e) {
             e.preventDefault();
             const btn = e.submitter || e.target.querySelector('button[type="submit"]');
+            if (btn && btn.disabled) return;
             const originalHTML = btn ? btn.innerHTML : '';
             if (btn) { btn.disabled = true; btn.textContent = 'Generando...'; }
             try {
@@ -1780,6 +1796,12 @@
                 // NOTE: authSeq is NOT incremented here so that an in-progress SIGNED_IN
                 // callback (which awaits the owner profile upsert) is not wrongly aborted.
                 if (event === 'TOKEN_REFRESHED' && currentUser) {
+                    currentUser = session.user;
+                    return;
+                }
+                // USER_UPDATED fires after updateUser() (e.g. password change); no need
+                // to re-fetch data or re-apply role UI for this micro-change.
+                if (event === 'USER_UPDATED' && currentUser) {
                     currentUser = session.user;
                     return;
                 }
