@@ -33,7 +33,7 @@ CREATE POLICY "profiles: owner read all" ON profiles
 -- NOTE: if the owner email changes, update the CASE expression below AND the policy further down
 --       AND the OWNER_EMAIL constant in propify_app.html.
 CREATE OR REPLACE FUNCTION public.handle_new_user()
-RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER AS $$
+RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
 BEGIN
     INSERT INTO public.profiles (id, email, role)
     VALUES (
