@@ -18,12 +18,37 @@
   command     = "sed -i 's|YOUR_SUPABASE_URL|'\"$SUPABASE_URL\"'|g' propify_app.html && sed -i 's|YOUR_SUPABASE_ANON_KEY|'\"$SUPABASE_ANON_KEY\"'|g' propify_app.html"
   publish     = "."
 
-# Cache the app HTML for a short time; users always get a fresh copy
-# but repeat visits within 60 s use the browser cache.
+# ---------------------------------------------------------------
+# Global headers applied to every response.
+# X-Robots-Tag tells search engines not to index or follow links,
+# reducing bot traffic and bandwidth consumption.
+# ---------------------------------------------------------------
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Robots-Tag        = "noindex, nofollow"
+    X-Content-Type-Options = "nosniff"
+    Vary                = "Accept-Encoding"
+
+# ---------------------------------------------------------------
+# Cache the app HTML for 1 hour (3600 s).
+# Netlify invalidates this cache on every new deploy, so users
+# always get the latest version after a release.
+# stale-while-revalidate=86400 lets the browser serve the cached
+# copy instantly while refreshing in the background, eliminating
+# perceived load time on repeat visits.
+# ---------------------------------------------------------------
 [[headers]]
   for = "/propify_app.html"
   [headers.values]
-    Cache-Control = "public, max-age=60, stale-while-revalidate=300"
+    Cache-Control = "public, max-age=3600, stale-while-revalidate=86400"
+
+# Cache the robots.txt for 1 day so bots don't re-fetch it on
+# every visit.
+[[headers]]
+  for = "/robots.txt"
+  [headers.values]
+    Cache-Control = "public, max-age=86400"
 
 # Cache long-lived static assets (e.g. future JS/CSS files) aggressively.
 [[headers]]

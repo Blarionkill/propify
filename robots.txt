@@ -1,0 +1,4 @@
+# Propify is a private property-management app.
+# No public content to index — disallow all crawlers.
+User-agent: *
+Disallow: /

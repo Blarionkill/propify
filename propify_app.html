@@ -1784,6 +1784,7 @@
                 }
                 if (session?.user) {
                     currentUser = session.user;
+                    adminFeesEnsured = false; // reset on every new session so fees are checked once per login
                     try {
                         currentRole = await getUserRole(session.user.id, session.user.email);
                     } catch (e) {
