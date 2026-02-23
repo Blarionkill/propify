@@ -31,7 +31,7 @@ ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
 --       and the CASE expression in handle_new_user() below.
 -- -------------------------
 CREATE OR REPLACE FUNCTION public.is_owner()
-RETURNS boolean LANGUAGE sql SECURITY DEFINER STABLE SET search_path = '' AS $func$
+RETURNS boolean LANGUAGE sql SECURITY DEFINER STABLE SET search_path = '' SET row_security = off AS $func$
     SELECT EXISTS (
         SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role = 'owner'
     )
