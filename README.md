@@ -160,5 +160,5 @@ Y agrega las variables en *Netlify → Site settings → Environment variables*:
 - Puede crear/editar inquilinos, registrar abonos, gestionar cuotas de administración y cuentas maestras de servicios.
 
 ### Inquilino (`tenant`)
-- Inicia sesión con email y contraseña → ve Dashboard, Servicios y Administración (solo lectura).
+- Inicia sesión con email y contraseña → ve Inquilinos, Recaudos y Servicios (solo lectura, incluyendo cuentas maestras y registro de medidores).
 - Puede registrar pagos de servicios con soporte (foto o PDF).
