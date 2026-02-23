@@ -464,20 +464,10 @@
             <p style="margin-bottom: 2rem; color: var(--text-muted); font-size:0.9rem;">Gestión Residencial</p>
 
             <div id="auth-form-content">
-                <input type="email" id="auth-email" class="form-control" placeholder="tu@email.com" style="margin-bottom: 1.5rem; text-align: center; font-size:1rem;">
-                <button id="auth-btn" class="btn btn-primary" style="width: 100%; padding: 14px;" onclick="sendMagicLink()">
-                    <i data-lucide="mail"></i> Enviar Link Mágico
-                </button>
-            </div>
-
-            <div id="auth-confirm" class="hidden">
-                <div style="background:#d1fae5; border-radius:12px; padding:1.5rem; color:#065f46;">
-                    <i data-lucide="check-circle" style="width:24px; height:24px; margin-bottom:8px;"></i>
-                    <p><strong>¡Link enviado!</strong></p>
-                    <p style="font-size:0.85rem; margin-top:8px;">Revisa tu email y haz clic en el enlace mágico para acceder.</p>
-                </div>
-                <button class="btn btn-ghost" style="width:100%; margin-top:1rem;" onclick="document.getElementById('auth-form-content').classList.remove('hidden'); document.getElementById('auth-confirm').classList.add('hidden');">
-                    Cambiar email
+                <input type="email" id="auth-email" class="form-control" placeholder="tu@email.com" style="margin-bottom: 1rem; text-align: center; font-size:1rem;">
+                <input type="password" id="auth-password" class="form-control" placeholder="Contraseña" style="margin-bottom: 1.5rem; text-align: center; font-size:1rem;">
+                <button id="auth-btn" class="btn btn-primary" style="width: 100%; padding: 14px;" onclick="signIn()">
+                    <i data-lucide="log-in"></i> Iniciar Sesión
                 </button>
             </div>
         </div>
@@ -839,28 +829,24 @@
         // =====================================================
         // 3. AUTH FUNCTIONS
         // =====================================================
-        async function sendMagicLink() {
+        async function signIn() {
             if (!SUPABASE_URL || !SUPABASE_URL.startsWith('https://')) {
                 alert('Configura SUPABASE_URL y SUPABASE_ANON_KEY en el archivo. Ver README.md para instrucciones.');
                 return;
             }
             const email = document.getElementById('auth-email').value.trim();
+            const password = document.getElementById('auth-password').value;
             if (!email) { alert('Por favor ingresa tu email.'); return; }
+            if (!password) { alert('Por favor ingresa tu contraseña.'); return; }
             const btn = document.getElementById('auth-btn');
             btn.disabled = true;
-            btn.textContent = 'Enviando...';
-            const { error } = await supabaseClient.auth.signInWithOtp({
-                email,
-                options: { emailRedirectTo: window.location.origin + window.location.pathname }
-            });
+            btn.textContent = 'Ingresando...';
+            const { error } = await supabaseClient.auth.signInWithPassword({ email, password });
             btn.disabled = false;
-            btn.innerHTML = '<i data-lucide="mail"></i> Enviar Link Mágico';
+            btn.innerHTML = '<i data-lucide="log-in"></i> Iniciar Sesión';
             lucide.createIcons();
             if (error) {
                 alert('Error: ' + error.message);
-            } else {
-                document.getElementById('auth-form-content').classList.add('hidden');
-                document.getElementById('auth-confirm').classList.remove('hidden');
             }
         }
 
@@ -1446,7 +1432,7 @@
         // 14. APP INIT
         // =====================================================
         window.onload = async () => {
-            // Handle auth state changes (also processes magic link hash on redirect)
+            // Handle auth state changes
             supabaseClient.auth.onAuthStateChange(async (event, session) => {
                 if (session?.user) {
                     currentUser = session.user;
