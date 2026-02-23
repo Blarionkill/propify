@@ -469,6 +469,19 @@
                 <button id="auth-btn" class="btn btn-primary" style="width: 100%; padding: 14px;" onclick="signIn()">
                     <i data-lucide="log-in"></i> Iniciar Sesión
                 </button>
+                <div style="margin-top: 1rem; text-align: center;">
+                    <button id="reset-btn" class="btn btn-ghost" style="font-size:0.85rem; color:var(--text-muted); background:none; border:none; cursor:pointer; text-decoration:underline;" onclick="resetPassword()">
+                        ¿Olvidaste tu contraseña?
+                    </button>
+                </div>
+            </div>
+            <div id="new-password-form-content" style="display:none;">
+                <p style="margin-bottom:1rem; color:var(--text-muted); font-size:0.9rem;">Ingresa tu nueva contraseña.</p>
+                <input type="password" id="new-password" class="form-control" placeholder="Nueva contraseña" style="margin-bottom: 1rem; text-align: center; font-size:1rem;">
+                <input type="password" id="confirm-password" class="form-control" placeholder="Confirmar contraseña" style="margin-bottom: 1.5rem; text-align: center; font-size:1rem;">
+                <button id="update-pwd-btn" class="btn btn-primary" style="width: 100%; padding: 14px;" onclick="updatePassword()">
+                    <i data-lucide="check"></i> Guardar Contraseña
+                </button>
             </div>
         </div>
     </div>
@@ -852,6 +865,47 @@
 
         function logout() {
             supabaseClient.auth.signOut();
+        }
+
+        async function resetPassword() {
+            const email = document.getElementById('auth-email').value.trim();
+            if (!email) { alert('Por favor ingresa tu email para restablecer la contraseña.'); return; }
+            const btn = document.getElementById('reset-btn');
+            btn.disabled = true;
+            btn.textContent = 'Enviando...';
+            const { error } = await supabaseClient.auth.resetPasswordForEmail(email, {
+                redirectTo: window.location.href
+            });
+            btn.disabled = false;
+            btn.textContent = '¿Olvidaste tu contraseña?';
+            if (error) {
+                alert('Error: ' + error.message);
+            } else {
+                alert('Te enviamos un correo para restablecer tu contraseña. Revisa tu bandeja de entrada.');
+            }
+        }
+
+        async function updatePassword() {
+            const newPwd = document.getElementById('new-password').value;
+            const confirmPwd = document.getElementById('confirm-password').value;
+            if (!newPwd) { alert('Por favor ingresa una nueva contraseña.'); return; }
+            if (newPwd.length < 6) { alert('La contraseña debe tener al menos 6 caracteres.'); return; }
+            if (newPwd !== confirmPwd) { alert('Las contraseñas no coinciden.'); return; }
+            const btn = document.getElementById('update-pwd-btn');
+            btn.disabled = true;
+            btn.textContent = 'Guardando...';
+            const { error } = await supabaseClient.auth.updateUser({ password: newPwd });
+            btn.disabled = false;
+            btn.innerHTML = '<i data-lucide="check"></i> Guardar Contraseña';
+            lucide.createIcons();
+            if (error) {
+                alert('Error: ' + error.message);
+            } else {
+                alert('Contraseña actualizada correctamente. Ya puedes iniciar sesión.');
+                document.getElementById('new-password-form-content').style.display = 'none';
+                document.getElementById('auth-form-content').style.display = 'block';
+                await supabaseClient.auth.signOut();
+            }
         }
 
         async function getUserRole(userId) {
@@ -1434,6 +1488,13 @@
         window.onload = async () => {
             // Handle auth state changes
             supabaseClient.auth.onAuthStateChange(async (event, session) => {
+                if (event === 'PASSWORD_RECOVERY') {
+                    document.getElementById('auth-overlay').style.display = 'flex';
+                    document.getElementById('auth-form-content').style.display = 'none';
+                    document.getElementById('new-password-form-content').style.display = 'block';
+                    lucide.createIcons();
+                    return;
+                }
                 if (session?.user) {
                     currentUser = session.user;
                     currentRole = await getUserRole(session.user.id);
