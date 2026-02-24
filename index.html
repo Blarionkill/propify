@@ -896,6 +896,20 @@
         // =====================================================
         // 3. AUTH FUNCTIONS
         // =====================================================
+        function resetAuthBtn() {
+            if (typeof authBtnSafetyTimer !== 'undefined' && authBtnSafetyTimer) {
+                clearTimeout(authBtnSafetyTimer);
+                authBtnSafetyTimer = null;
+            }
+            const btn = document.getElementById('auth-btn');
+            if (!btn) return;
+            btn.disabled = false;
+            btn.innerHTML = '<i data-lucide="log-in"></i> Iniciar Sesión';
+            lucide.createIcons();
+        }
+
+        let authBtnSafetyTimer = null;
+
         async function signIn() {
             if (!SUPABASE_URL || !SUPABASE_URL.startsWith('https://')) {
                 alert('Configura SUPABASE_URL y SUPABASE_ANON_KEY en el archivo. Ver README.md para instrucciones.');
@@ -912,19 +926,37 @@
                 const { error } = await supabaseClient.auth.signInWithPassword({ email, password });
                 if (error) {
                     alert('Error: ' + error.message);
+                    resetAuthBtn();
+                } else {
+                    // Keep button disabled with a loading indicator.
+                    // onAuthStateChange will hide the overlay and call resetAuthBtn() on success,
+                    // or the safety timer below will recover if auth events never fire.
+                    btn.textContent = 'Cargando...';
+                    authBtnSafetyTimer = setTimeout(() => {
+                        authBtnSafetyTimer = null;
+                        if (document.getElementById('auth-overlay').style.display !== 'none') {
+                            resetAuthBtn();
+                        }
+                    }, 30000);
                 }
             } catch (e) {
                 console.error('signIn error:', e);
                 alert('Error de conexión. Verifica tu internet e intenta de nuevo.');
-            } finally {
-                btn.disabled = false;
-                btn.innerHTML = '<i data-lucide="log-in"></i> Iniciar Sesión';
-                lucide.createIcons();
+                resetAuthBtn();
             }
         }
 
         async function logout() {
             await supabaseClient.auth.signOut();
+        }
+
+        // Wraps a promise with a timeout. Clears the timer when the promise settles.
+        function withDbTimeout(promise, ms) {
+            let timerId;
+            const timeout = new Promise((_, reject) => {
+                timerId = setTimeout(() => reject(new Error(`DB timeout after ${ms}ms`)), ms);
+            });
+            return Promise.race([promise, timeout]).finally(() => clearTimeout(timerId));
         }
 
         async function getUserRole(userId, userEmail) {
@@ -934,13 +966,29 @@
             if (userEmail && userEmail.toLowerCase() === OWNER_EMAIL.toLowerCase()) {
                 // Upsert ensures the profile row exists with role='owner', even if the
                 // on_auth_user_created trigger never ran (e.g., schema applied after signup).
-                const { error: upsertErr } = await supabaseClient.from('profiles')
-                    .upsert({ id: userId, email: userEmail, role: 'owner' }, { onConflict: 'id' });
-                if (upsertErr) console.error('Profile upsert error (owner):', upsertErr.message);
+                // Role is determined by email match, so we always return 'owner' even if the
+                // upsert times out or fails.
+                try {
+                    const { error: upsertErr } = await withDbTimeout(
+                        supabaseClient.from('profiles').upsert({ id: userId, email: userEmail, role: 'owner' }, { onConflict: 'id' }),
+                        10000
+                    );
+                    if (upsertErr) console.error('Profile upsert error (owner):', upsertErr.message);
+                } catch (e) {
+                    console.error('Profile upsert error (owner):', e.message);
+                }
                 return 'owner';
             }
-            const { data } = await supabaseClient.from('profiles').select('role').eq('id', userId).single();
-            return data?.role || 'tenant';
+            try {
+                const { data } = await withDbTimeout(
+                    supabaseClient.from('profiles').select('role').eq('id', userId).single(),
+                    10000
+                );
+                return data?.role || 'tenant';
+            } catch (e) {
+                console.error('Error fetching role:', e.message);
+                return 'tenant';
+            }
         }
 
         function applyRoleUI(role) {
@@ -1766,6 +1814,7 @@
                     // Guard: a newer auth event (e.g. SIGNED_OUT) fired while we awaited
                     if (mySeq !== authSeq) return;
                     document.getElementById('auth-overlay').style.display = 'none';
+                    resetAuthBtn();
                     const emailEl = document.getElementById('user-email-display');
                     const sidebarEmailEl = document.getElementById('sidebar-user-email');
                     if (emailEl) emailEl.textContent = session.user.email;
@@ -1777,6 +1826,7 @@
                     currentRole = null;
                     adminFeesEnsured = false;
                     document.getElementById('auth-overlay').style.display = 'flex';
+                    resetAuthBtn();
                 }
             });
 
