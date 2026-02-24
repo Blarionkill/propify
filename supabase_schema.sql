@@ -23,18 +23,16 @@ ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
 
 -- -------------------------
 -- is_owner() helper
--- SECURITY DEFINER: bypasses RLS on profiles, preventing infinite recursion
--- in policies that need to check whether the current user is an owner.
--- Returns false (not true) when no user is authenticated (auth.uid() is null),
--- so unauthenticated requests are always denied.
--- NOTE: if the owner email changes, also update OWNER_EMAIL in propify_app.html
+-- Reads the owner email directly from the JWT claims — no DB query required.
+-- This avoids any risk of recursive RLS evaluation (profiles policies also call
+-- is_owner()) and is faster than a SELECT on profiles for every write operation.
+-- Returns false when no user is authenticated (auth.email() returns null).
+-- NOTE: if the owner email changes, also update OWNER_EMAIL in index.html
 --       and the CASE expression in handle_new_user() below.
 -- -------------------------
 CREATE OR REPLACE FUNCTION public.is_owner()
-RETURNS boolean LANGUAGE sql SECURITY DEFINER STABLE SET search_path = '' SET row_security = off AS $func$
-    SELECT EXISTS (
-        SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role = 'owner'
-    )
+RETURNS boolean LANGUAGE sql STABLE SET search_path = '' AS $func$
+    SELECT lower(coalesce(auth.email(), '')) = 'bxfrias@gmail.com'
 $func$;
 
 -- Drop policies before (re-)creating them so this script is idempotent.
@@ -76,7 +74,7 @@ CREATE TRIGGER on_auth_user_created
 
 -- Allow owner to update any profile (e.g., to change roles). Uses is_owner() to avoid recursion.
 CREATE POLICY "profiles: owner update all" ON profiles
-    FOR UPDATE USING (public.is_owner());
+    FOR UPDATE USING (public.is_owner()) WITH CHECK (public.is_owner());
 
 -- Allow the designated owner email to bootstrap their own role to 'owner'
 -- (needed on first login before any owner profile exists)
@@ -109,12 +107,21 @@ CREATE TABLE IF NOT EXISTS tenants (
 
 ALTER TABLE tenants ENABLE ROW LEVEL SECURITY;
 
--- Owner: full access; Tenant: read-only
-DROP POLICY IF EXISTS "tenants: owner all"   ON tenants;
-DROP POLICY IF EXISTS "tenants: tenant read" ON tenants;
+-- Owner: full write access; all authenticated users: read-only
+DROP POLICY IF EXISTS "tenants: owner all"    ON tenants;
+DROP POLICY IF EXISTS "tenants: owner insert" ON tenants;
+DROP POLICY IF EXISTS "tenants: owner update" ON tenants;
+DROP POLICY IF EXISTS "tenants: owner delete" ON tenants;
+DROP POLICY IF EXISTS "tenants: tenant read"  ON tenants;
 
-CREATE POLICY "tenants: owner all" ON tenants
-    FOR ALL USING (public.is_owner());
+CREATE POLICY "tenants: owner insert" ON tenants
+    FOR INSERT WITH CHECK (public.is_owner());
+
+CREATE POLICY "tenants: owner update" ON tenants
+    FOR UPDATE USING (public.is_owner()) WITH CHECK (public.is_owner());
+
+CREATE POLICY "tenants: owner delete" ON tenants
+    FOR DELETE USING (public.is_owner());
 
 CREATE POLICY "tenants: tenant read" ON tenants
     FOR SELECT USING (auth.uid() IS NOT NULL);
@@ -135,11 +142,20 @@ CREATE TABLE IF NOT EXISTS payments (
 
 ALTER TABLE payments ENABLE ROW LEVEL SECURITY;
 
-DROP POLICY IF EXISTS "payments: owner all"   ON payments;
-DROP POLICY IF EXISTS "payments: tenant read" ON payments;
+DROP POLICY IF EXISTS "payments: owner all"    ON payments;
+DROP POLICY IF EXISTS "payments: owner insert" ON payments;
+DROP POLICY IF EXISTS "payments: owner update" ON payments;
+DROP POLICY IF EXISTS "payments: owner delete" ON payments;
+DROP POLICY IF EXISTS "payments: tenant read"  ON payments;
 
-CREATE POLICY "payments: owner all" ON payments
-    FOR ALL USING (public.is_owner());
+CREATE POLICY "payments: owner insert" ON payments
+    FOR INSERT WITH CHECK (public.is_owner());
+
+CREATE POLICY "payments: owner update" ON payments
+    FOR UPDATE USING (public.is_owner()) WITH CHECK (public.is_owner());
+
+CREATE POLICY "payments: owner delete" ON payments
+    FOR DELETE USING (public.is_owner());
 
 CREATE POLICY "payments: tenant read" ON payments
     FOR SELECT USING (auth.uid() IS NOT NULL);
@@ -157,11 +173,20 @@ CREATE TABLE IF NOT EXISTS admin_fees (
 
 ALTER TABLE admin_fees ENABLE ROW LEVEL SECURITY;
 
-DROP POLICY IF EXISTS "admin_fees: owner all"   ON admin_fees;
-DROP POLICY IF EXISTS "admin_fees: tenant read" ON admin_fees;
+DROP POLICY IF EXISTS "admin_fees: owner all"    ON admin_fees;
+DROP POLICY IF EXISTS "admin_fees: owner insert" ON admin_fees;
+DROP POLICY IF EXISTS "admin_fees: owner update" ON admin_fees;
+DROP POLICY IF EXISTS "admin_fees: owner delete" ON admin_fees;
+DROP POLICY IF EXISTS "admin_fees: tenant read"  ON admin_fees;
 
-CREATE POLICY "admin_fees: owner all" ON admin_fees
-    FOR ALL USING (public.is_owner());
+CREATE POLICY "admin_fees: owner insert" ON admin_fees
+    FOR INSERT WITH CHECK (public.is_owner());
+
+CREATE POLICY "admin_fees: owner update" ON admin_fees
+    FOR UPDATE USING (public.is_owner()) WITH CHECK (public.is_owner());
+
+CREATE POLICY "admin_fees: owner delete" ON admin_fees
+    FOR DELETE USING (public.is_owner());
 
 CREATE POLICY "admin_fees: tenant read" ON admin_fees
     FOR SELECT USING (auth.uid() IS NOT NULL);
@@ -179,11 +204,20 @@ CREATE TABLE IF NOT EXISTS utility_accounts (
 
 ALTER TABLE utility_accounts ENABLE ROW LEVEL SECURITY;
 
-DROP POLICY IF EXISTS "utility_accounts: owner all"   ON utility_accounts;
-DROP POLICY IF EXISTS "utility_accounts: tenant read" ON utility_accounts;
+DROP POLICY IF EXISTS "utility_accounts: owner all"    ON utility_accounts;
+DROP POLICY IF EXISTS "utility_accounts: owner insert" ON utility_accounts;
+DROP POLICY IF EXISTS "utility_accounts: owner update" ON utility_accounts;
+DROP POLICY IF EXISTS "utility_accounts: owner delete" ON utility_accounts;
+DROP POLICY IF EXISTS "utility_accounts: tenant read"  ON utility_accounts;
 
-CREATE POLICY "utility_accounts: owner all" ON utility_accounts
-    FOR ALL USING (public.is_owner());
+CREATE POLICY "utility_accounts: owner insert" ON utility_accounts
+    FOR INSERT WITH CHECK (public.is_owner());
+
+CREATE POLICY "utility_accounts: owner update" ON utility_accounts
+    FOR UPDATE USING (public.is_owner()) WITH CHECK (public.is_owner());
+
+CREATE POLICY "utility_accounts: owner delete" ON utility_accounts
+    FOR DELETE USING (public.is_owner());
 
 CREATE POLICY "utility_accounts: tenant read" ON utility_accounts
     FOR SELECT USING (auth.uid() IS NOT NULL);
@@ -202,11 +236,20 @@ CREATE TABLE IF NOT EXISTS service_readings (
 
 ALTER TABLE service_readings ENABLE ROW LEVEL SECURITY;
 
-DROP POLICY IF EXISTS "service_readings: owner all"   ON service_readings;
-DROP POLICY IF EXISTS "service_readings: tenant read" ON service_readings;
+DROP POLICY IF EXISTS "service_readings: owner all"    ON service_readings;
+DROP POLICY IF EXISTS "service_readings: owner insert" ON service_readings;
+DROP POLICY IF EXISTS "service_readings: owner update" ON service_readings;
+DROP POLICY IF EXISTS "service_readings: owner delete" ON service_readings;
+DROP POLICY IF EXISTS "service_readings: tenant read"  ON service_readings;
 
-CREATE POLICY "service_readings: owner all" ON service_readings
-    FOR ALL USING (public.is_owner());
+CREATE POLICY "service_readings: owner insert" ON service_readings
+    FOR INSERT WITH CHECK (public.is_owner());
+
+CREATE POLICY "service_readings: owner update" ON service_readings
+    FOR UPDATE USING (public.is_owner()) WITH CHECK (public.is_owner());
+
+CREATE POLICY "service_readings: owner delete" ON service_readings
+    FOR DELETE USING (public.is_owner());
 
 CREATE POLICY "service_readings: tenant read" ON service_readings
     FOR SELECT USING (auth.uid() IS NOT NULL);
@@ -229,17 +272,18 @@ CREATE TABLE IF NOT EXISTS service_payments (
 ALTER TABLE service_payments ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS "service_payments: owner all"     ON service_payments;
+DROP POLICY IF EXISTS "service_payments: owner delete"  ON service_payments;
 DROP POLICY IF EXISTS "service_payments: tenant read"   ON service_payments;
 DROP POLICY IF EXISTS "service_payments: tenant insert" ON service_payments;
 DROP POLICY IF EXISTS "service_payments: tenant update" ON service_payments;
 
--- Owner: full access
-CREATE POLICY "service_payments: owner all" ON service_payments
-    FOR ALL USING (public.is_owner());
+-- Owner: full delete access (read/insert/update are covered by the tenant policies below,
+-- since the owner is also an authenticated user).
+CREATE POLICY "service_payments: owner delete" ON service_payments
+    FOR DELETE USING (public.is_owner());
 
--- Tenant: can read, insert and update service payments (to attach/update payment receipts)
--- Note: tenant_id restriction is not applied here as there is no FK between auth.uid()
--- and the tenants table; this matches the scope of the existing read/insert policies.
+-- All authenticated users: read, insert, and update service payments
+-- (tenants submit receipts; owner can also manage them).
 CREATE POLICY "service_payments: tenant read" ON service_payments
     FOR SELECT USING (auth.uid() IS NOT NULL);
 
@@ -247,7 +291,7 @@ CREATE POLICY "service_payments: tenant insert" ON service_payments
     FOR INSERT WITH CHECK (auth.uid() IS NOT NULL);
 
 CREATE POLICY "service_payments: tenant update" ON service_payments
-    FOR UPDATE USING (auth.uid() IS NOT NULL);
+    FOR UPDATE USING (auth.uid() IS NOT NULL) WITH CHECK (auth.uid() IS NOT NULL);
 
 -- -------------------------
 -- Storage bucket policy (run after creating the 'supports' bucket)
