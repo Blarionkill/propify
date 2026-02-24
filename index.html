@@ -962,7 +962,7 @@
         // Wraps a DB/storage promise with a timeout and throws on API-level errors,
         // so every caller gets a single, consistent error path regardless of whether
         // Supabase returns { error } or rejects the promise.
-        async function runDbOp(promise, ms = 10000) {
+        async function runDbOp(promise, ms = 20000) {
             const result = await withDbTimeout(promise, ms);
             if (result && result.error) throw result.error;
             return result;
@@ -980,7 +980,7 @@
                 try {
                     const { error: upsertErr } = await withDbTimeout(
                         supabaseClient.from('profiles').upsert({ id: userId, email: userEmail, role: 'owner' }, { onConflict: 'id' }),
-                        10000
+                        20000
                     );
                     if (upsertErr) console.error('Profile upsert error (owner):', upsertErr.message);
                 } catch (e) {
@@ -991,7 +991,7 @@
             try {
                 const { data } = await withDbTimeout(
                     supabaseClient.from('profiles').select('role').eq('id', userId).single(),
-                    10000
+                    20000
                 );
                 return data?.role || 'tenant';
             } catch (e) {
@@ -1105,8 +1105,7 @@
                 await runDbOp(
                     supabaseClient.from('admin_fees').insert(
                         missing.map(month => ({ month, amount: 204800, status: 'Pendiente' }))
-                    ),
-                    10000
+                    )
                 );
             }
         }
