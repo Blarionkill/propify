@@ -960,15 +960,20 @@
         // 4. SUPABASE DATA LAYER
         // =====================================================
         async function fetchStateFromSupabase() {
-            const [tenantsRes, paymentsRes, readingsRes, spRes, feesRes, uaRes, profilesRes] = await Promise.all([
+            // Queries are batched in groups of 3 to avoid exceeding the browser's limit of
+            // 6 concurrent connections per host (each query generates 2 connections including
+            // the CORS preflight OPTIONS request).
+            const [tenantsRes, paymentsRes, readingsRes] = await Promise.all([
                 supabaseClient.from('tenants').select('*'),
                 supabaseClient.from('payments').select('*').order('created_at', { ascending: false }),
                 supabaseClient.from('service_readings').select('*').order('created_at', { ascending: false }),
+            ]);
+            const [spRes, feesRes, uaRes] = await Promise.all([
                 supabaseClient.from('service_payments').select('*').order('created_at', { ascending: false }),
                 supabaseClient.from('admin_fees').select('*').order('month', { ascending: false }),
                 supabaseClient.from('utility_accounts').select('*'),
-                supabaseClient.from('profiles').select('*'),
             ]);
+            const profilesRes = await supabaseClient.from('profiles').select('*');
             return {
                 tenants: (tenantsRes.data || []).map(t => ({
                     id: t.id, name: t.name, phone: t.phone, payday: t.payday,
