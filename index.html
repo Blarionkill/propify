@@ -973,19 +973,7 @@
             // If you need to change the owner email, update OWNER_EMAIL at the top of this file
             // AND re-run the SQL schema (trigger function + policies) in Supabase.
             if (userEmail && userEmail.toLowerCase() === OWNER_EMAIL.toLowerCase()) {
-                // Upsert ensures the profile row exists with role='owner', even if the
-                // on_auth_user_created trigger never ran (e.g., schema applied after signup).
-                // Role is determined by email match, so we always return 'owner' even if the
-                // upsert times out or fails.
-                try {
-                    const { error: upsertErr } = await withDbTimeout(
-                        supabaseClient.from('profiles').upsert({ id: userId, email: userEmail, role: 'owner' }, { onConflict: 'id' }),
-                        20000
-                    );
-                    if (upsertErr) console.error('Profile upsert error (owner):', upsertErr.message);
-                } catch (e) {
-                    console.error('Profile upsert error (owner):', e.message);
-                }
+                // Role is determined entirely by email match — no DB round trip needed.
                 return 'owner';
             }
             try {
@@ -1017,20 +1005,17 @@
         // 4. SUPABASE DATA LAYER
         // =====================================================
         async function fetchStateFromSupabase() {
-            // Queries are batched in groups of 3 to avoid exceeding the browser's limit of
-            // 6 concurrent connections per host (each query generates 2 connections including
-            // the CORS preflight OPTIONS request).
-            const [tenantsRes, paymentsRes, readingsRes] = await Promise.all([
+            // Run all queries in parallel — Supabase uses HTTP/2 which multiplexes
+            // requests over a single connection, so there is no per-host limit to worry about.
+            const [tenantsRes, paymentsRes, readingsRes, spRes, feesRes, uaRes, profilesRes] = await Promise.all([
                 supabaseClient.from('tenants').select('*'),
                 supabaseClient.from('payments').select('*').order('created_at', { ascending: false }),
                 supabaseClient.from('service_readings').select('*').order('created_at', { ascending: false }),
-            ]);
-            const [spRes, feesRes, uaRes] = await Promise.all([
                 supabaseClient.from('service_payments').select('*').order('created_at', { ascending: false }),
                 supabaseClient.from('admin_fees').select('*').order('month', { ascending: false }),
                 supabaseClient.from('utility_accounts').select('*'),
+                supabaseClient.from('profiles').select('*'),
             ]);
-            const profilesRes = await supabaseClient.from('profiles').select('*');
             return {
                 tenants: (tenantsRes.data || []).map(t => ({
                     id: t.id, name: t.name, phone: t.phone, payday: t.payday,
@@ -1421,9 +1406,16 @@
                     start_date: document.getElementById('t-start').value,
                     end_date: document.getElementById('t-end').value || null
                 };
-                if (id) { await runDbOp(supabaseClient.from('tenants').update(data).eq('id', id)); }
-                else { await runDbOp(supabaseClient.from('tenants').insert(data)); }
-                closeModals(); await sync();
+                if (id) {
+                    await runDbOp(supabaseClient.from('tenants').update(data).eq('id', id));
+                    const idx = state.tenants.findIndex(t => t.id === id);
+                    if (idx !== -1) state.tenants[idx] = { ...state.tenants[idx], name: data.name, phone: data.phone, payday: data.payday, rent: data.rent, start: data.start_date, end: data.end_date };
+                } else {
+                    const result = await runDbOp(supabaseClient.from('tenants').insert(data).select().single());
+                    const row = result.data;
+                    state.tenants.push({ id: row.id, name: row.name, phone: row.phone, payday: row.payday, rent: row.rent, start: row.start_date, end: row.end_date });
+                }
+                closeModals(); renderAll();
             } catch (err) { alert('Error: ' + err.message); }
             finally {
                 if (btn) { btn.disabled = false; btn.innerHTML = originalHTML; lucide.createIcons(); }
@@ -1443,15 +1435,17 @@
                     const r = await uploadSupportToStorage(file);
                     receiptUrl = r.url; receiptType = r.type;
                 }
-                await runDbOp(supabaseClient.from('payments').insert({
+                const result = await runDbOp(supabaseClient.from('payments').insert({
                     tenant_id: document.getElementById('p-tenant').value,
                     concept: document.getElementById('p-concept').value,
                     amount: parseFloat(document.getElementById('p-amount').value),
                     month: document.getElementById('p-month').value,
                     receipt_url: receiptUrl,
                     receipt_type: receiptType
-                }));
-                closeModals(); await sync();
+                }).select().single());
+                const row = result.data;
+                state.payments.unshift({ id: row.id, tenantId: row.tenant_id, concept: row.concept, amount: row.amount, month: row.month, receipt: row.receipt_url, receiptType: row.receipt_type, createdAt: row.created_at });
+                closeModals(); renderAll();
             } catch (err) { alert('Error: ' + err.message); }
             finally {
                 if (btn) { btn.disabled = false; btn.innerHTML = originalHTML; lucide.createIcons(); }
@@ -1465,14 +1459,23 @@
             const originalHTML = btn ? btn.innerHTML : '';
             if (btn) { btn.disabled = true; btn.textContent = 'Guardando...'; }
             try {
-                await saveAdminFeeToSupabase({
-                    id: document.getElementById('a-id-hidden').value || null,
+                const id = document.getElementById('a-id-hidden').value || null;
+                const feeData = {
+                    id,
                     month: document.getElementById('a-month').value,
                     amount: document.getElementById('a-amount').value,
                     status: document.getElementById('a-status').value
-                });
-                closeModals();
-                await sync();
+                };
+                if (id) {
+                    await runDbOp(supabaseClient.from('admin_fees').update({ amount: parseFloat(feeData.amount), status: feeData.status }).eq('id', id));
+                    const idx = state.adminfees.findIndex(af => af.id === id);
+                    if (idx !== -1) { state.adminfees[idx].amount = parseFloat(feeData.amount); state.adminfees[idx].status = feeData.status; }
+                } else {
+                    const result = await runDbOp(supabaseClient.from('admin_fees').insert({ month: feeData.month, amount: parseFloat(feeData.amount), status: feeData.status }).select().single());
+                    const row = result.data;
+                    state.adminfees.unshift({ id: row.id, month: row.month, amount: row.amount, status: row.status, createdAt: row.created_at });
+                }
+                closeModals(); renderAll();
             } catch (err) { alert('Error: ' + err.message); }
             finally {
                 if (btn) { btn.disabled = false; btn.innerHTML = originalHTML; lucide.createIcons(); }
@@ -1500,21 +1503,25 @@
                         amount: parseFloat(document.getElementById('sp-amount').value),
                         month: document.getElementById('sp-month').value,
                     };
-                    if (supportUrl) {
-                        updateData.support_url = supportUrl;
-                        updateData.support_type = supportType;
-                    }
+                    if (supportUrl) { updateData.support_url = supportUrl; updateData.support_type = supportType; }
                     await runDbOp(supabaseClient.from('service_payments').update(updateData).eq('id', id));
+                    const idx = state.servicePayments.findIndex(sp => sp.id === id);
+                    if (idx !== -1) {
+                        state.servicePayments[idx] = { ...state.servicePayments[idx], tenantId: updateData.tenant_id, type: updateData.type, amount: updateData.amount, month: updateData.month, ...(supportUrl ? { supportUrl, supportType } : {}) };
+                    }
                 } else {
-                    await saveServicePaymentToSupabase({
-                        tenantId: document.getElementById('sp-tenant').value,
+                    const result = await runDbOp(supabaseClient.from('service_payments').insert({
+                        tenant_id: document.getElementById('sp-tenant').value,
                         type: document.getElementById('sp-type').value,
-                        amount: document.getElementById('sp-amount').value,
+                        amount: parseFloat(document.getElementById('sp-amount').value),
                         month: document.getElementById('sp-month').value,
-                        supportUrl, supportType
-                    });
+                        support_url: supportUrl || null,
+                        support_type: supportType || null
+                    }).select().single());
+                    const row = result.data;
+                    state.servicePayments.unshift({ id: row.id, tenantId: row.tenant_id, type: row.type, amount: row.amount, month: row.month, date: row.date, supportUrl: row.support_url, supportType: row.support_type });
                 }
-                closeModals(); await sync();
+                closeModals(); renderAll();
             } catch (err) { alert('Error: ' + err.message); }
             finally {
                 if (btn) { btn.disabled = false; btn.innerHTML = originalHTML; lucide.createIcons(); }
@@ -1528,12 +1535,14 @@
             const originalHTML = btn ? btn.innerHTML : '';
             if (btn) { btn.disabled = true; btn.textContent = 'Guardando...'; }
             try {
-                await runDbOp(supabaseClient.from('service_readings').insert({
+                const result = await runDbOp(supabaseClient.from('service_readings').insert({
                     tenant_id: document.getElementById('r-tenant').value,
                     type: document.getElementById('r-type').value,
                     meter_reading: parseFloat(document.getElementById('r-meter').value)
-                }));
-                closeModals(); await sync();
+                }).select().single());
+                const row = result.data;
+                state.services.unshift({ id: row.id, tenantId: row.tenant_id, type: row.type, meterReading: row.meter_reading, date: row.date });
+                closeModals(); renderAll();
             } catch (err) { alert('Error: ' + err.message); }
             finally {
                 if (btn) { btn.disabled = false; btn.innerHTML = originalHTML; lucide.createIcons(); }
@@ -1553,9 +1562,16 @@
                     contract: document.getElementById('u-contract').value,
                     due_date: document.getElementById('u-due-date').value
                 };
-                if (id) { await runDbOp(supabaseClient.from('utility_accounts').update(data).eq('id', id)); }
-                else { await runDbOp(supabaseClient.from('utility_accounts').insert(data)); }
-                closeModals(); await sync();
+                if (id) {
+                    await runDbOp(supabaseClient.from('utility_accounts').update(data).eq('id', id));
+                    const idx = state.utilityAccounts.findIndex(u => u.id === id);
+                    if (idx !== -1) state.utilityAccounts[idx] = { ...state.utilityAccounts[idx], type: data.type, contract: data.contract, dueDate: data.due_date };
+                } else {
+                    const result = await runDbOp(supabaseClient.from('utility_accounts').insert(data).select().single());
+                    const row = result.data;
+                    state.utilityAccounts.push({ id: row.id, type: row.type, contract: row.contract, dueDate: row.due_date, lastPaidMonth: row.last_paid_month });
+                }
+                closeModals(); renderAll();
             } catch (err) { alert('Error: ' + err.message); }
             finally {
                 if (btn) { btn.disabled = false; btn.innerHTML = originalHTML; lucide.createIcons(); }
@@ -1666,7 +1682,9 @@
                 const id = document.getElementById('ur-id-hidden').value;
                 const role = document.getElementById('ur-role').value;
                 await runDbOp(supabaseClient.from('profiles').update({ role }).eq('id', id));
-                closeModals(); await sync();
+                const idx = state.profiles.findIndex(pr => pr.id === id);
+                if (idx !== -1) state.profiles[idx].role = role;
+                closeModals(); renderAll();
             } catch (err) { alert('Error: ' + err.message); }
             finally {
                 if (btn) { btn.disabled = false; btn.innerHTML = originalHTML; lucide.createIcons(); }
@@ -1690,10 +1708,12 @@
                     alert(`Todos los meses de ${year} ya existen.`);
                     return;
                 }
-                await runDbOp(supabaseClient.from('admin_fees').insert(
+                const result = await runDbOp(supabaseClient.from('admin_fees').insert(
                     missing.map(month => ({ month, amount, status: 'Pendiente' }))
-                ));
-                closeModals(); await sync();
+                ).select());
+                const rows = result.data || [];
+                rows.forEach(row => state.adminfees.unshift({ id: row.id, month: row.month, amount: row.amount, status: row.status, createdAt: row.created_at }));
+                closeModals(); renderAll();
             } catch (err) { alert('Error: ' + err.message); }
             finally {
                 if (btn) { btn.disabled = false; btn.innerHTML = originalHTML; lucide.createIcons(); }
@@ -1756,16 +1776,42 @@
             }
         };
 
-        function askDeleteTenant(id) { showConfirm('¿Eliminar inquilino?', async () => { await runDbOp(supabaseClient.from('tenants').delete().eq('id', id)); await sync(); }); }
-        function askDeletePayment(id) { showConfirm('¿Borrar pago?', async () => { await runDbOp(supabaseClient.from('payments').delete().eq('id', id)); await sync(); }); }
-        function askDeleteReading(id) { showConfirm('¿Borrar lectura?', async () => { await runDbOp(supabaseClient.from('service_readings').delete().eq('id', id)); await sync(); }); }
-        function askDeleteServicePayment(id) { showConfirm('¿Borrar pago de servicio?', async () => { await runDbOp(supabaseClient.from('service_payments').delete().eq('id', id)); await sync(); }); }
-        function askDeleteUtility(id) { showConfirm('¿Eliminar cuenta maestra?', async () => { await runDbOp(supabaseClient.from('utility_accounts').delete().eq('id', id)); await sync(); }); }
+        function askDeleteTenant(id) { showConfirm('¿Eliminar inquilino?', async () => {
+            await runDbOp(supabaseClient.from('tenants').delete().eq('id', id));
+            // Cascade-clean related state to match DB ON DELETE CASCADE
+            state.payments = state.payments.filter(p => p.tenantId !== id);
+            state.services = state.services.filter(r => r.tenantId !== id);
+            state.servicePayments = state.servicePayments.filter(sp => sp.tenantId !== id);
+            state.tenants = state.tenants.filter(t => t.id !== id);
+            renderAll();
+        }); }
+        function askDeletePayment(id) { showConfirm('¿Borrar pago?', async () => {
+            await runDbOp(supabaseClient.from('payments').delete().eq('id', id));
+            state.payments = state.payments.filter(p => p.id !== id);
+            renderAll();
+        }); }
+        function askDeleteReading(id) { showConfirm('¿Borrar lectura?', async () => {
+            await runDbOp(supabaseClient.from('service_readings').delete().eq('id', id));
+            state.services = state.services.filter(r => r.id !== id);
+            renderAll();
+        }); }
+        function askDeleteServicePayment(id) { showConfirm('¿Borrar pago de servicio?', async () => {
+            await runDbOp(supabaseClient.from('service_payments').delete().eq('id', id));
+            state.servicePayments = state.servicePayments.filter(sp => sp.id !== id);
+            renderAll();
+        }); }
+        function askDeleteUtility(id) { showConfirm('¿Eliminar cuenta maestra?', async () => {
+            await runDbOp(supabaseClient.from('utility_accounts').delete().eq('id', id));
+            state.utilityAccounts = state.utilityAccounts.filter(u => u.id !== id);
+            renderAll();
+        }); }
 
         window.markUtilityPaid = async function(id, month) {
             try {
                 await runDbOp(supabaseClient.from('utility_accounts').update({ last_paid_month: month }).eq('id', id));
-                await sync();
+                const idx = state.utilityAccounts.findIndex(u => u.id === id);
+                if (idx !== -1) state.utilityAccounts[idx].lastPaidMonth = month;
+                renderAll();
             } catch (err) { alert('Error: ' + err.message); }
         };
 
